@@ -1,0 +1,5 @@
+# Bỏ qua thư mục chứa các thư viện đã cài đặt
+node_modules/
+
+# Bỏ qua các file biến môi trường (nếu có)
+.env
