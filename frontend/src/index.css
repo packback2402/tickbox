@@ -199,3 +199,80 @@ input, textarea, select {
   color: #2CC275 !important;
   opacity: 1 !important;
 }
+
+/* ─── Phòng vệ extension trình duyệt ──────────────────────────────────────── */
+/* Vô hiệu hóa khả năng nhận sự kiện click của các container tooltip ngoại lai  */
+/* (ví dụ: extension dịch chuột MTT, Mate Translate, …) để không chặn mua vé   */
+#mttContainer,
+#mttContainer * {
+  pointer-events: none !important;
+}
+
+/* ─── Rich text editor output styles ──────────────────────────────────────── */
+/* Applied to all dangerouslySetInnerHTML description blocks                   */
+.event-description-html {
+  line-height: 1.75;
+  color: inherit;
+  word-break: break-word;
+}
+
+/* ── Reset inline styles từ nội dung copy-paste (Word, Google Docs, web...) ── */
+/* Override background-color và color trên tất cả phần tử con                  */
+.event-description-html * {
+  background-color: transparent !important;
+  /* Không reset color ở đây để giữ màu text đã set inline từ editor chủ ý */
+}
+
+/* Đặc biệt reset font-family và font-size lạ từ Word */
+.event-description-html span {
+  font-family: inherit !important;
+}
+
+
+/* Images inserted via editor — cap to container width, never overflow */
+.event-description-html img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  display: block;
+  margin: 12px auto;
+  object-fit: contain;
+}
+
+/* Headings inside description */
+.event-description-html h1,
+.event-description-html h2,
+.event-description-html h3 {
+  margin: 1em 0 0.4em;
+  font-weight: 700;
+  color: inherit;
+}
+
+/* Paragraphs */
+.event-description-html p {
+  margin-bottom: 0.75em;
+}
+
+/* Lists */
+.event-description-html ul,
+.event-description-html ol {
+  padding-left: 1.5em;
+  margin-bottom: 0.75em;
+}
+
+/* Blockquote */
+.event-description-html blockquote {
+  border-left: 3px solid #2CC275;
+  padding: 6px 14px;
+  margin: 0.75em 0;
+  color: #aaa;
+  font-style: italic;
+  background: rgba(44, 194, 117, 0.06);
+  border-radius: 0 6px 6px 0;
+}
+
+/* Strong / em */
+.event-description-html strong { font-weight: 700; }
+.event-description-html em { font-style: italic; }
+.event-description-html u { text-decoration: underline; }
+.event-description-html s { text-decoration: line-through; }

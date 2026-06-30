@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import api from '../api';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Link } from 'react-router-dom';
 import { FaCalendar, FaArrowLeft } from 'react-icons/fa';
@@ -17,8 +17,8 @@ const CategoryPage = () => {
     const fetchCategoryAndEvents = async () => {
       try {
         const [categoryRes, eventsRes] = await Promise.all([
-          axios.get(`http://127.0.0.1:5000/api/categories/${id}`),
-          axios.get(`http://127.0.0.1:5000/api/events?category_id=${id}`)
+          api.get(`/api/categories/${id}`),
+          api.get(`/api/events?category_id=${id}`)
         ]);
         setCategory(categoryRes.data);
         setEvents(eventsRes.data);
@@ -116,7 +116,9 @@ const CategoryPage = () => {
             gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
             gap: '24px',
           }}>
-            {events.map(event => (
+            {events.map(event => {
+              const isEnded = new Date(event.end_date || event.event_date) < new Date();
+              return (
               <Link key={event.id} to={`/events/${event.id}`} style={{ textDecoration: 'none' }}>
                 <div
                   style={{
@@ -142,7 +144,16 @@ const CategoryPage = () => {
                 >
                   {/* Image */}
                   <div style={{ height: '200px', overflow: 'hidden', position: 'relative' }}>
-                    {event.is_featured && (
+                    {isEnded && (
+                      <div style={{
+                        position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                        background: 'rgba(0,0,0,0.6)', zIndex: 15,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center'
+                      }}>
+                        <span style={{ color: 'white', background: '#e74c3c', padding: '6px 16px', borderRadius: '20px', fontWeight: 'bold', fontSize: '13px', border: '1px solid rgba(255,255,255,0.5)' }}>ĐÃ KẾT THÚC</span>
+                      </div>
+                    )}
+                    {!isEnded && event.is_featured && (
                       <div style={{
                         position: 'absolute',
                         top: '12px',
@@ -243,27 +254,28 @@ const CategoryPage = () => {
                       <button style={{
                         width: '100%',
                         textAlign: 'center',
-                        background: 'var(--primary-color)',
-                        color: 'white',
+                        background: isEnded ? '#555' : 'var(--primary-color)',
+                        color: isEnded ? '#aaa' : 'white',
                         padding: '10px 16px',
                         borderRadius: '8px',
                         textDecoration: 'none',
                         fontWeight: '600',
                         border: 'none',
-                        cursor: 'pointer',
+                        cursor: isEnded ? 'default' : 'pointer',
                         fontSize: '14px',
                         transition: 'var(--transition)',
                       }}
-                        onMouseEnter={(e) => e.target.style.background = '#25a562'}
-                        onMouseLeave={(e) => e.target.style.background = 'var(--primary-color)'}
+                        onClick={(e) => { if (isEnded) e.preventDefault(); }}
+                        onMouseEnter={(e) => { if(!isEnded) e.target.style.background = '#25a562'; }}
+                        onMouseLeave={(e) => { if(!isEnded) e.target.style.background = 'var(--primary-color)'; }}
                       >
-                        Xem chi tiết
+                        {isEnded ? 'Đã kết thúc' : 'Xem chi tiết'}
                       </button>
                     </div>
                   </div>
                 </div>
               </Link>
-            ))}
+            )})}
           </div>
         )}
       </div>

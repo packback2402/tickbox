@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import axios from 'axios';
+import api from '../api';
 import { useNavigate, Link } from 'react-router-dom';
 
 const LoginPage = () => {
@@ -12,7 +12,7 @@ const LoginPage = () => {
     e.preventDefault();
     setIsLoading(true);
     try {
-      const res = await axios.post('http://127.0.0.1:5000/api/auth/login', {
+      const res = await api.post('/api/auth/login', {
         email,
         password
       });
@@ -44,7 +44,7 @@ const LoginPage = () => {
           <div>
             <label style={{ display: 'block', color: '#aaa', marginBottom: '8px', fontSize: '14px' }}>Mật khẩu</label>
             <input type="password" placeholder="Nhập mật khẩu" value={password} onChange={(e) => setPassword(e.target.value)} required style={{ width: '100%', padding: '12px 15px', borderRadius: '8px', border: '1px solid #444', backgroundColor: '#2a2a2a', color: 'white', fontSize: '16px', outline: 'none', boxSizing: 'border-box' }} />
-            
+
             {/* LINK QUÊN MẬT KHẨU */}
             <div style={{ textAlign: 'right', marginTop: '10px' }}>
               <Link to="/forgot-password" style={{ color: '#2CC275', textDecoration: 'none', fontSize: '13px' }}>

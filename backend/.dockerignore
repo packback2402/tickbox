@@ -1,0 +1,29 @@
+# Dependencies (Docker tự cài lại qua npm ci)
+node_modules
+
+# Biến môi trường (tạo riêng trên server)
+.env
+.env.*
+
+# Git
+.git
+.gitignore
+
+# File hệ thống Mac
+.DS_Store
+Thumbs.db
+
+# File test (không cần trong production)
+test-*.js
+tests/
+
+# Script dev cũ
+start-momo-dev.sh
+
+# File backup DB
+*.dump
+*.sql.bak
+
+# Log
+*.log
+npm-debug.log*

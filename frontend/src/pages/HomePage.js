@@ -1,15 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import api from '../api';
 import { Link } from 'react-router-dom';
 import HeroBanner from '../components/HeroBanner';
-import Slider from "react-slick"; 
+import Slider from "react-slick";
 import { FaCalendar } from "react-icons/fa";
 import { MdPlace } from "react-icons/md";
 
 const EventRow = ({ title, events }) => {
   const settings = {
     dots: true,
-    infinite: false,  
+    infinite: false,
     speed: 500,
     slidesToShow: 4,
     slidesToScroll: 4,
@@ -28,15 +28,17 @@ const EventRow = ({ title, events }) => {
         <p style={{ paddingLeft: '16px', color: 'var(--text-secondary)', fontSize: '16px' }}>Chưa có sự kiện nào.</p>
       ) : (
         <Slider {...settings}>
-          {events.map(event => (
+          {events.map(event => {
+            const isEnded = new Date(event.end_date || event.event_date) < new Date();
+            return (
             <div key={event.id} style={{ padding: '8px' }}>
               <Link to={`/events/${event.id}`} style={{ textDecoration: 'none' }}>
-                <div style={{ 
-                  backgroundColor: 'var(--card-bg)', 
-                  borderRadius: '12px', 
-                  overflow: 'hidden', 
+                <div style={{
+                  backgroundColor: 'var(--card-bg)',
+                  borderRadius: '12px',
+                  overflow: 'hidden',
                   boxShadow: 'var(--shadow-md)',
-                  display: 'flex',          
+                  display: 'flex',
                   flexDirection: 'column',
                   height: '420px',
                   transition: 'var(--transition)',
@@ -47,17 +49,26 @@ const EventRow = ({ title, events }) => {
                     boxShadow: 'var(--shadow-lg)',
                   }
                 }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = 'translateY(-8px)';
-                  e.currentTarget.style.boxShadow = 'var(--shadow-lg)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.boxShadow = 'var(--shadow-md)';
-                }}>
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = 'translateY(-8px)';
+                    e.currentTarget.style.boxShadow = 'var(--shadow-lg)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.boxShadow = 'var(--shadow-md)';
+                  }}>
                   {/* Ảnh sự kiện */}
                   <div style={{ height: '200px', overflow: 'hidden', position: 'relative' }}>
-                    {event.is_featured && (
+                    {isEnded && (
+                      <div style={{
+                        position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                        background: 'rgba(0,0,0,0.6)', zIndex: 15,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center'
+                      }}>
+                        <span style={{ color: 'white', background: '#e74c3c', padding: '6px 16px', borderRadius: '20px', fontWeight: 'bold', fontSize: '13px', border: '1px solid rgba(255,255,255,0.5)' }}>ĐÃ KẾT THÚC</span>
+                      </div>
+                    )}
+                    {!isEnded && event.is_featured && (
                       <div style={{
                         position: 'absolute',
                         top: '12px',
@@ -89,21 +100,21 @@ const EventRow = ({ title, events }) => {
                         {event.category_name}
                       </div>
                     )}
-                    <img 
-                      src={event.image_url || 'https://via.placeholder.com/300x200?text=No+Image'} 
-                      alt={event.title} 
-                      style={{ 
-                        width: '100%', 
-                        height: '100%', 
+                    <img
+                      src={event.image_url || 'https://via.placeholder.com/300x200?text=No+Image'}
+                      alt={event.title}
+                      style={{
+                        width: '100%',
+                        height: '100%',
                         objectFit: 'cover',
                         transition: 'var(--transition)',
                       }}
                       onError={(e) => e.target.src = 'https://via.placeholder.com/300x200?text=No+Image'}
                     />
                   </div>
-                  
+
                   {/* Nội dung card */}
-                  <div style={{ 
+                  <div style={{
                     padding: '16px',
                     flexGrow: 1,
                     display: 'flex',
@@ -113,9 +124,9 @@ const EventRow = ({ title, events }) => {
                   }}>
                     {/* Tiêu đề */}
                     <div>
-                      <h3 style={{ 
-                        margin: '0 0 8px 0', 
-                        fontSize: 'clamp(16px, 3vw, 18px)', 
+                      <h3 style={{
+                        margin: '0 0 8px 0',
+                        fontSize: 'clamp(16px, 3vw, 18px)',
                         height: '48px',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
@@ -128,13 +139,13 @@ const EventRow = ({ title, events }) => {
                       }}>
                         {event.title}
                       </h3>
-                      
+
                       {/* Thời gian */}
                       <div style={{ display: 'flex', alignItems: 'center', color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '8px', gap: '8px' }}>
                         <FaCalendar style={{ color: 'var(--primary-color)', flexShrink: 0 }} />
                         <span>{new Date(event.event_date).toLocaleDateString('vi-VN')}</span>
                       </div>
-                      
+
                       {/* Địa điểm */}
                       <div style={{ display: 'flex', alignItems: 'center', color: 'var(--text-secondary)', fontSize: '13px', gap: '8px' }}>
                         <MdPlace style={{ color: 'var(--primary-color)', flexShrink: 0 }} />
@@ -143,13 +154,13 @@ const EventRow = ({ title, events }) => {
                         </span>
                       </div>
                     </div>
-                    
+
                     {/* Category & Button */}
                     <div>
                       {event.category_name && (
-                        <p style={{ 
-                          fontWeight: '600', 
-                          color: 'var(--primary-color)', 
+                        <p style={{
+                          fontWeight: '600',
+                          color: 'var(--primary-color)',
                           margin: '0 0 12px 0',
                           fontSize: '12px',
                           textTransform: 'uppercase',
@@ -158,32 +169,33 @@ const EventRow = ({ title, events }) => {
                           {event.category_name}
                         </p>
                       )}
-                      
-                      <button style={{ 
-                        width: '100%', 
-                        textAlign: 'center', 
-                        background: 'var(--primary-color)', 
-                        color: 'white', 
-                        padding: '10px 16px', 
-                        borderRadius: '8px', 
-                        textDecoration: 'none', 
+
+                      <button style={{
+                        width: '100%',
+                        textAlign: 'center',
+                        background: isEnded ? '#555' : 'var(--primary-color)',
+                        color: isEnded ? '#aaa' : 'white',
+                        padding: '10px 16px',
+                        borderRadius: '8px',
+                        textDecoration: 'none',
                         fontWeight: '600',
                         border: 'none',
-                        cursor: 'pointer',
+                        cursor: isEnded ? 'default' : 'pointer',
                         fontSize: '14px',
                         transition: 'var(--transition)',
                       }}
-                      onMouseEnter={(e) => e.target.style.background = '#25a562'}
-                      onMouseLeave={(e) => e.target.style.background = 'var(--primary-color)'}
+                        onClick={(e) => { if (isEnded) e.preventDefault(); }}
+                        onMouseEnter={(e) => { if(!isEnded) e.target.style.background = '#25a562'; }}
+                        onMouseLeave={(e) => { if(!isEnded) e.target.style.background = 'var(--primary-color)'; }}
                       >
-                        Xem chi tiết
+                        {isEnded ? 'Đã kết thúc' : 'Xem chi tiết'}
                       </button>
                     </div>
                   </div>
                 </div>
               </Link>
             </div>
-          ))}
+          )})}
         </Slider>
       )}
     </section>
@@ -201,11 +213,11 @@ const HomePage = () => {
     const fetchAllData = async () => {
       try {
         const [featuredRes, upcomingRes, categoriesRes] = await Promise.all([
-          axios.get('http://127.0.0.1:5000/api/events/featured'),
-          axios.get('http://127.0.0.1:5000/api/events/upcoming'),
-          axios.get('http://127.0.0.1:5000/api/categories')
+          api.get('/api/events/featured'),
+          api.get('/api/events/upcoming'),
+          api.get('/api/categories')
         ]);
-        
+
         setFeaturedEvents(featuredRes.data);
         setUpcomingEvents(upcomingRes.data);
         setCategories(categoriesRes.data);
@@ -234,14 +246,14 @@ const HomePage = () => {
     <div style={{ paddingTop: '40px', paddingBottom: '60px', minHeight: '100vh' }}>
       <div className="container">
         <HeroBanner event={featuredEvents.length > 0 ? featuredEvents[0] : null} />
-        
+
         <EventRow title="Sự kiện nổi bật" events={featuredEvents.slice(1)} />
         <EventRow title="Sự kiện sắp diễn ra" events={upcomingEvents} />
 
         {/* Categories Section */}
         <section style={{ marginTop: '60px' }}>
           <h2 style={{ marginBottom: '24px', fontSize: 'clamp(20px, 4vw, 28px)', paddingLeft: '16px', color: '#fff', fontWeight: '600' }}>Khám phá</h2>
-          <div style={{ 
+          <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
             gap: '12px',
@@ -261,14 +273,14 @@ const HomePage = () => {
                 textAlign: 'center',
                 fontSize: '14px',
               }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = 'var(--primary-color)';
-                e.currentTarget.style.background = 'rgba(44, 194, 117, 0.1)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = 'var(--border-color)';
-                e.currentTarget.style.background = 'var(--card-bg)';
-              }}>
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = 'var(--primary-color)';
+                  e.currentTarget.style.background = 'rgba(44, 194, 117, 0.1)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = 'var(--border-color)';
+                  e.currentTarget.style.background = 'var(--card-bg)';
+                }}>
                 {category.name}
               </Link>
             ))}

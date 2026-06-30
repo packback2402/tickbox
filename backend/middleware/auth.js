@@ -1,24 +1,23 @@
-const jwt = require('jsonwebtoken');
+const jwt = require("jsonwebtoken");
 
-// Hàm này sẽ đứng giữa request của người dùng và API
 const auth = (req, res, next) => {
   try {
-    // 1. Lấy token từ header (x-auth-token)
-    const token = req.header('x-auth-token');
+    // Authorization: Bearer <token>
+    const authHeader = req.headers.authorization;
 
-    // 2. Nếu không có token -> Chặn lại
-    if (!token) {
-      return res.status(401).json({ msg: "Không có token, từ chối truy cập!" });
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ msg: "Không có token hoặc token sai định dạng!" });
     }
 
-    // 3. Nếu có -> Kiểm tra xem token có hợp lệ không (dùng chìa khóa bí mật)
-    const verified = jwt.verify(token, process.env.JWT_SECRET);
-    
-    // 4. Nếu hợp lệ -> Gán thông tin user vào request và cho đi tiếp
-    req.user = verified;
+    const token = authHeader.split(" ")[1];
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    req.user = decoded;
     next();
   } catch (err) {
-    res.status(500).json({ msg: "Token không hợp lệ!" });
+    console.error("JWT ERROR:", err.message);
+    return res.status(401).json({ msg: "Token không hợp lệ hoặc đã hết hạn!" });
   }
 };
 

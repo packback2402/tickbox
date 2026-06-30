@@ -1,0 +1,26 @@
+# Dependencies (Docker tự cài lại qua npm ci)
+node_modules
+
+# Build cũ (Docker tự build lại)
+build
+dist
+
+# Biến môi trường (tạo riêng trên server)
+.env
+.env.*
+
+# Git
+.git
+.gitignore
+
+# File hệ thống Mac
+.DS_Store
+Thumbs.db
+
+# File test
+src/**/*.test.js
+src/**/*.spec.js
+
+# Log
+*.log
+npm-debug.log*

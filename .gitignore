@@ -21,3 +21,13 @@ yarn-error.log*
 # Bỏ qua file hệ thống của Mac/Windows
 .DS_Store
 Thumbs.db
+
+# SSL certificates (Certbot)
+nginx/certbot/
+
+# Uploads từ user
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Không commit .env production (chỉ commit .env.production mẫu)
+.env
