@@ -491,7 +491,7 @@ const SeatMapPage = () => {
                       <div style={{ width: '14px', height: '14px', borderRadius: '3px', background: zone.color, flexShrink: 0 }} />
                       <div style={{ flex: 1 }}>
                         <div style={{ color: '#ddd', fontSize: '13px', fontWeight: '600' }}>{zone.name}</div>
-                        <div style={{ color: '#555', fontSize: '11px' }}>Đứng · Còn {available > 0 ? `${available}` : 0} chỗ</div>
+                        <div style={{ color: '#555', fontSize: '11px' }}>Đứng</div>
                       </div>
                       <div style={{ color: zone.color, fontWeight: '700', fontSize: '13px', whiteSpace: 'nowrap' }}>
                         {fmt(zone.price)}
@@ -520,13 +520,9 @@ const SeatMapPage = () => {
                 <MdPlace /> {zonePopup.zone.name}
               </h3>
               <div style={{ background: '#1a1a1a', borderRadius: '10px', padding: '16px', marginBottom: '20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: '#888' }}>Giá vé</span>
                   <strong style={{ color: '#2CC275' }}>{fmt(zonePopup.zone.price)}</strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#888' }}>Số chỗ còn</span>
-                  <strong style={{ color: '#FFD700' }}>{zonePopup.zone.capacity - zonePopup.zone.sold}</strong>
                 </div>
               </div>
 
@@ -881,12 +877,8 @@ const SeatMapPage = () => {
                 <FaUsers style={{ marginRight: "4px" }} /> {zonePopup.zone.name}
               </h3>
               <div style={{ background: '#1a1a1a', borderRadius: '10px', padding: '14px', marginBottom: '20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <span style={{ color: '#888' }}>Giá vé</span><strong style={{ color: '#2CC275' }}>{fmt(zonePopup.zone.price)}</strong>
-                </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#888' }}>Còn lại</span>
-                  <strong style={{ color: '#FFD700' }}>{zonePopup.zone.capacity - (zonePopup.zone.sold || 0)} chỗ</strong>
+                  <span style={{ color: '#888' }}>Giá vé</span><strong style={{ color: '#2CC275' }}>{fmt(zonePopup.zone.price)}</strong>
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '20px', marginBottom: '20px' }}>

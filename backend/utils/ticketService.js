@@ -48,7 +48,7 @@ if (EMAIL_CONFIGURED) {
  * Hash ensures integrity and prevents tampering
  */
 function generateEncryptedTicketId(ticketId, orderItemId, eventId) {
-  const secret = process.env.TICKET_SECRET_KEY || 'tickbox-default-secret-key-change-in-production';
+  const secret = process.env.TICKET_SECRET_KEY || 'titicket-default-secret-key-change-in-production';
   
   // Create composite identifier
   const identifier = `${ticketId}:${orderItemId}:${eventId}`;
@@ -67,7 +67,7 @@ function generateEncryptedTicketId(ticketId, orderItemId, eventId) {
  * Verify encrypted ticket identifier
  */
 function verifyEncryptedTicketId(encryptedId) {
-  const secret = process.env.TICKET_SECRET_KEY || 'tickbox-default-secret-key-change-in-production';
+  const secret = process.env.TICKET_SECRET_KEY || 'titicket-default-secret-key-change-in-production';
   const parts = encryptedId.split(':');
   
   if (parts.length !== 4) return { valid: false };
@@ -281,8 +281,8 @@ async function sendTicketConfirmationEmail(emailData) {
             </div>
             
             <div class="footer">
-              <p>Nếu bạn có câu hỏi, vui lòng liên hệ với chúng tôi qua support@tickbox.com</p>
-              <p>&copy; 2024 TickBox. All rights reserved.</p>
+              <p>Nếu bạn có câu hỏi, vui lòng liên hệ với chúng tôi qua support@titicket.com</p>
+              <p>&copy; 2024 TiTicket. All rights reserved.</p>
             </div>
           </div>
         </div>
@@ -291,7 +291,7 @@ async function sendTicketConfirmationEmail(emailData) {
     `;
 
     await transporter.sendMail({
-      from: `"TickBox" <${process.env.EMAIL_USER}>`,
+      from: `"TiTicket" <${process.env.EMAIL_USER}>`,
       to: customerEmail,
       subject: `Xác nhận vé: ${eventTitle}`,
       html: htmlContent,
@@ -365,7 +365,7 @@ async function sendEventReminderEmail(emailData) {
     `;
 
     await transporter.sendMail({
-      from: `"TickBox" <${process.env.EMAIL_USER}>`,
+      from: `"TiTicket" <${process.env.EMAIL_USER}>`,
       to: customerEmail,
       subject: `Nhắc nhở: ${eventTitle} sắp diễn ra`,
       html: htmlContent,

@@ -110,7 +110,9 @@ const OrganizerDashboard = () => {
   const [showSeatmapViewer, setShowSeatmapViewer] = useState(false);
   const [tempCreatedEventId, setTempCreatedEventId] = useState(null);
   // Step 4 — license
-  const [licenseFiles, setLicenseFiles] = useState([]);
+  const [licenseFiles, setLicenseFiles] = useState([]);   // File objects chưa upload
+  const [licenseUrls, setLicenseUrls] = useState([]);     // URLs đã upload thành công
+  const [licenseUploading, setLicenseUploading] = useState(false);
   const [licenseNote, setLicenseNote] = useState('');
   // Step 4 — payment
   const [paymentInfo, setPaymentInfo] = useState({ accountHolder: '', accountNumber: '', bankName: '', branch: '' });
@@ -272,6 +274,8 @@ const OrganizerDashboard = () => {
       setWantInvoice(ev.want_invoice || false);
       setInvoiceInfo({ businessType: ev.invoice_business_type || 'personal', fullName: ev.invoice_full_name || '', companyName: ev.invoice_company_name || '', taxCode: ev.invoice_tax_code || '', address: ev.invoice_address || '' });
       setLicenseNote(ev.license_note || '');
+      setLicenseUrls(ev.license_files || []);  // Load URLs đã lưu
+      setLicenseFiles([]);
     } catch { setTicketRows([{ type: 'Vé Thường', price: '', quantity_available: 100 }]); }
     // Load seatmap status
     setHasSeatMap(!!event.has_seatmap);
@@ -299,6 +303,7 @@ const OrganizerDashboard = () => {
     setTempCreatedEventId(null);
     setLicenseFiles([]);
     setLicenseNote('');
+    setLicenseUrls([]);
     setPaymentInfo({ accountHolder: '', accountNumber: '', bankName: '', branch: '' });
     setWantInvoice(false);
     setInvoiceInfo({ businessType: 'personal', fullName: '', companyName: '', taxCode: '', address: '' });
@@ -350,6 +355,7 @@ const OrganizerDashboard = () => {
         category_id: parseInt(eventData.category_id),
         is_featured: false,
         license_note: licenseNote,
+        license_files: licenseUrls.length > 0 ? licenseUrls : undefined,
         bank_account_holder: paymentInfo.accountHolder,
         bank_account_number: paymentInfo.accountNumber,
         bank_name: paymentInfo.bankName,
@@ -962,12 +968,65 @@ const OrganizerDashboard = () => {
                   <textarea style={{ ...inputStyle, height: '100px', resize: 'vertical' }} placeholder="Mô tả giấy phép, cơ quan cấp phép, số giấy phép..." value={licenseNote} onChange={e => setLicenseNote(e.target.value)} onFocus={e => e.target.style.borderColor='#2CC275'} onBlur={e => e.target.style.borderColor='#444'} />
                   <div style={{ marginTop: '14px' }}>
                     <label style={labelStyle}>Tải lên file minh chứng</label>
-                    <div style={{ border: '2px dashed #333', borderRadius: '10px', padding: '20px', textAlign: 'center', cursor: 'pointer' }} onClick={() => document.getElementById('org-lic-file').click()}>
-                      <input id="org-lic-file" type="file" multiple accept=".pdf,.jpg,.png" style={{ display: 'none' }} onChange={e => setLicenseFiles(Array.from(e.target.files))} />
+                    <div
+                      style={{ border: '2px dashed #333', borderRadius: '10px', padding: '20px', textAlign: 'center', cursor: licenseUploading ? 'not-allowed' : 'pointer', opacity: licenseUploading ? 0.7 : 1 }}
+                      onClick={() => !licenseUploading && document.getElementById('org-lic-file').click()}
+                    >
+                      <input
+                        id="org-lic-file" type="file" multiple accept=".pdf,.jpg,.jpeg,.png"
+                        style={{ display: 'none' }}
+                        onChange={async (e) => {
+                          const files = Array.from(e.target.files);
+                          if (!files.length) return;
+                          setLicenseFiles(files);
+                          setLicenseUploading(true);
+                          try {
+                            const formData = new FormData();
+                            files.forEach(f => formData.append('files', f));
+                            const res = await api.post('/api/upload/license', formData, {
+                              headers: { 'Content-Type': 'multipart/form-data' },
+                            });
+                            setLicenseUrls(prev => [...prev, ...res.data.urls]);
+                            setLicenseFiles([]);
+                          } catch (err) {
+                            alert('Upload thất bại: ' + (err.response?.data?.msg || err.message));
+                          } finally {
+                            setLicenseUploading(false);
+                            e.target.value = '';
+                          }
+                        }}
+                      />
                       <FaFileAlt size={24} color="#555" style={{ marginBottom: '8px' }} />
                       <div style={{ color: '#555', fontSize: '13px' }}>PDF, JPG, PNG — Nhấn để chọn file</div>
-                      {licenseFiles.length > 0 && <div style={{ marginTop: '10px', color: '#2CC275', fontSize: '13px', fontWeight: '600' }}>{licenseFiles.length} file đã chọn</div>}
+                      {licenseUploading && (
+                        <div style={{ marginTop: '10px', color: '#FFC107', fontSize: '13px', fontWeight: '600' }}>Đang tải lên...</div>
+                      )}
                     </div>
+                    {/* Hiển thị file đã upload */}
+                    {licenseUrls.length > 0 && (
+                      <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {licenseUrls.map((url, i) => {
+                          const filename = url.split('/').pop();
+                          const isPdf = filename.toLowerCase().endsWith('.pdf');
+                          // URL /uploads/... là relative path — CRA proxy (dev) và nginx (production) đều xử lý đúng
+                          const fullUrl = url.startsWith('http') ? url : url;
+                          return (
+                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#111', borderRadius: '8px', padding: '10px 14px', border: '1px solid #2a2a2a' }}>
+                              <FaFileAlt size={16} color={isPdf ? '#ff6b6b' : '#2CC275'} />
+                              <a href={fullUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#ccc', fontSize: '13px', flex: 1, textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {filename}
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => setLicenseUrls(prev => prev.filter((_, idx) => idx !== i))}
+                                style={{ background: 'transparent', border: 'none', color: '#ff4d4f', cursor: 'pointer', fontSize: '16px', padding: '0 4px', lineHeight: 1 }}
+                                title="Xóa file"
+                              >✕</button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -994,35 +1053,6 @@ const OrganizerDashboard = () => {
                       <label style={labelStyle}>Chi nhánh</label>
                       <input style={inputStyle} placeholder="Chi nhánh Hà Nội..." value={paymentInfo.branch} onChange={e => setPaymentInfo(p => ({ ...p, branch: e.target.value }))} onFocus={e => e.target.style.borderColor='#2CC275'} onBlur={e => e.target.style.borderColor='#444'} />
                     </div>
-                  </div>
-                  {/* Invoice */}
-                  <div style={{ borderTop: '1px solid #222', paddingTop: '20px', marginTop: '20px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-                      <div>
-                        <div style={{ color: '#fff', fontWeight: '700', fontSize: '14px' }}>Hoá đơn đỏ (VAT)</div>
-                        <div style={{ color: '#555', fontSize: '12px', marginTop: '2px' }}>Yêu cầu xuất hoá đơn GTGT sau khi sự kiện kết thúc</div>
-                      </div>
-                      <button type="button" onClick={() => setWantInvoice(v => !v)} style={{ width: '48px', height: '26px', borderRadius: '13px', border: 'none', cursor: 'pointer', background: wantInvoice ? '#2CC275' : '#252525', position: 'relative', transition: 'background 0.25s', flexShrink: 0 }}>
-                        <span style={{ position: 'absolute', top: '3px', left: wantInvoice ? '25px' : '3px', width: '20px', height: '20px', borderRadius: '50%', background: '#fff', transition: 'left 0.25s' }} />
-                      </button>
-                    </div>
-                    {wantInvoice && (
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', background: '#111', padding: '16px', borderRadius: '10px' }}>
-                        <div style={{ gridColumn: '1/-1' }}>
-                          <label style={labelStyle}>Loại hình</label>
-                          <select style={selectStyle} value={invoiceInfo.businessType} onChange={e => setInvoiceInfo(v => ({ ...v, businessType: e.target.value }))}>
-                            <option value="personal">Cá nhân</option>
-                            <option value="company">Doanh nghiệp / Tổ chức</option>
-                          </select>
-                        </div>
-                        <div><label style={labelStyle}>Họ tên / Người đại diện</label><input style={inputStyle} value={invoiceInfo.fullName} onChange={e => setInvoiceInfo(v => ({ ...v, fullName: e.target.value }))} onFocus={e => e.target.style.borderColor='#2CC275'} onBlur={e => e.target.style.borderColor='#444'} /></div>
-                        {invoiceInfo.businessType === 'company' && (
-                          <><div><label style={labelStyle}>Tên công ty</label><input style={inputStyle} value={invoiceInfo.companyName} onChange={e => setInvoiceInfo(v => ({ ...v, companyName: e.target.value }))} onFocus={e => e.target.style.borderColor='#2CC275'} onBlur={e => e.target.style.borderColor='#444'} /></div>
-                          <div><label style={labelStyle}>Mã số thuế</label><input style={inputStyle} value={invoiceInfo.taxCode} onChange={e => setInvoiceInfo(v => ({ ...v, taxCode: e.target.value }))} onFocus={e => e.target.style.borderColor='#2CC275'} onBlur={e => e.target.style.borderColor='#444'} /></div></>
-                        )}
-                        <div style={{ gridColumn: '1/-1' }}><label style={labelStyle}>Địa chỉ</label><input style={inputStyle} value={invoiceInfo.address} onChange={e => setInvoiceInfo(v => ({ ...v, address: e.target.value }))} onFocus={e => e.target.style.borderColor='#2CC275'} onBlur={e => e.target.style.borderColor='#444'} /></div>
-                      </div>
-                    )}
                   </div>
                 </div>
 

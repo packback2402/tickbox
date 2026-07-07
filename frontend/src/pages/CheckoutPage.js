@@ -56,6 +56,7 @@ const CheckoutPage = () => {
       ticket_type: ticket.type,
       selected_date: event.selected_date || null,
       schedule_time: event.schedule_time || null,
+      schedule_id: event.schedule_id || null,
     };
 
     try {

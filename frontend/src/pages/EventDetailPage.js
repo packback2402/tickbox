@@ -66,7 +66,7 @@ const EventDetailPage = () => {
 
     // Đã đăng nhập -> Chuyển sang trang Checkout và mang theo thông tin vé + sự kiện
     const eventForCheckout = selectedSchedule
-      ? { ...event, selected_date: selectedSchedule.selected_date, schedule_time: selectedSchedule.schedule_time }
+      ? { ...event, selected_date: selectedSchedule.selected_date, schedule_time: selectedSchedule.schedule_time, schedule_id: selectedSchedule.schedule_id }
       : event;
 
     navigate('/checkout', { state: { event: eventForCheckout, ticket } });
@@ -279,46 +279,76 @@ const EventDetailPage = () => {
         <p style={{ color: '#aaa' }}>Chưa có thông tin vé cho sự kiện này.</p>
       ) : (
         <ul style={{ listStyle: 'none', padding: 0 }}>
-          {tickets.map(ticket => (
-            <li key={ticket.id} style={{
-              border: '1px solid #333',
-              background: '#1e1e1e',
-              padding: '15px',
-              marginBottom: '10px',
-              borderRadius: '8px',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center'
-            }}>
-              <div>
-                <strong style={{ fontSize: '1.1rem', color: '#fff' }}>{ticket.type}</strong>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#2CC275' }}>
-                  {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(ticket.price)}
-                </div>
+          {tickets.map(ticket => {
+            // Tính available: nếu đang chọn ngày → dùng daily_available của ngày đó
+            let availableQty = ticket.quantity_available;
+            let isDailyData = false;
+            if (selectedSchedule && selectedSchedule.schedule_id) {
+              const selectedSched = schedules.find(s => s.id === selectedSchedule.schedule_id);
+              if (selectedSched && selectedSched.tickets) {
+                const dayTicket = selectedSched.tickets.find(t => t.ticket_id === ticket.id);
+                if (dayTicket) {
+                  availableQty = dayTicket.daily_available;
+                  isDailyData = true;
+                }
+              }
+            }
+            const isSoldOut = availableQty <= 0;
+            const canBuy = !isEnded && !isSoldOut && (!isMultiDay || selectedSchedule);
+            // Vé ĐỨNG (standing) không có khái niệm "chỗ" — ẩn số lượng còn lại
+            const isStanding = /đứng|standing|ga|general/i.test(ticket.type);
 
-                {/* 4. Gắn sự kiện onClick vào nút button */}
-                {!event.has_seatmap && (
-                  <button
-                    disabled={isEnded || ticket.quantity_available <= 0 || (isMultiDay && !selectedSchedule)}
-                    onClick={() => handleBuyTicket(ticket)}
-                    style={{
-                    background: (!isEnded && ticket.quantity_available > 0 && (!isMultiDay || selectedSchedule)) ? '#2CC275' : '#555',
-                    color: 'white',
-                    border: 'none',
-                    padding: '8px 15px',
-                    borderRadius: '5px',
-                    cursor: (!isEnded && ticket.quantity_available > 0 && (!isMultiDay || selectedSchedule)) ? 'pointer' : 'not-allowed',
-                    marginTop: '10px',
-                    fontWeight: 'bold'
-                  }}>
-                  {isEnded ? 'Đã kết thúc' : (ticket.quantity_available > 0 ? (isMultiDay && !selectedSchedule ? 'Chọn ngày trước' : 'Chọn vé') : 'Hết vé')}
-                </button>
-                )}
-              </div>
-            </li>
-          ))}
+            return (
+              <li key={ticket.id} style={{
+                border: `1px solid ${isSoldOut && isDailyData ? '#4a3030' : '#333'}`,
+                background: isSoldOut && isDailyData ? '#1a1515' : '#1e1e1e',
+                padding: '15px',
+                marginBottom: '10px',
+                borderRadius: '8px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                opacity: isSoldOut && isDailyData ? 0.6 : 1,
+              }}>
+                <div>
+                  <strong style={{ fontSize: '1.1rem', color: '#fff' }}>{ticket.type}</strong>
+                  {isDailyData && (
+                    <div style={{ fontSize: '12px', color: isSoldOut ? '#ff4d4f' : '#888', marginTop: 3 }}>
+                      {isSoldOut ? 'Hết vé' : (!isStanding ? `Còn ${availableQty} vé` : null)}
+                    </div>
+                  )}
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#2CC275' }}>
+                    {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(ticket.price)}
+                  </div>
+
+                  {/* Nút mua vé */}
+                  {!event.has_seatmap && (
+                    <button
+                      disabled={!canBuy}
+                      onClick={() => canBuy && handleBuyTicket(ticket)}
+                      style={{
+                        background: canBuy ? '#2CC275' : '#555',
+                        color: 'white',
+                        border: 'none',
+                        padding: '8px 15px',
+                        borderRadius: '5px',
+                        cursor: canBuy ? 'pointer' : 'not-allowed',
+                        marginTop: '10px',
+                        fontWeight: 'bold',
+                      }}>
+                      {isEnded
+                        ? 'Đã kết thúc'
+                        : isSoldOut
+                          ? 'Hết vé'
+                          : (isMultiDay && !selectedSchedule ? 'Chọn ngày trước' : 'Chọn vé')}
+                    </button>
+                  )}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

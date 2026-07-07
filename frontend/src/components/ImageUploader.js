@@ -38,12 +38,12 @@ const ImageUploader = ({
   const primary   = '#2CC275';
   const radius    = shape === 'circle' ? '50%' : '12px';
 
-  const BACKEND_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5001';
-
   const resolveUrl = (url) => {
     if (!url) return '';
     if (url.startsWith('http')) return url;
-    return `${BACKEND_BASE}${url}`;
+    // /uploads/... là relative path — hoạt động đúng qua CRA proxy (dev) và nginx (production)
+    // KHÔNG dùng REACT_APP_API_URL vì nó là '/api', không phải base domain
+    return url;
   };
 
   /* ── Core upload logic ───────────────────────────────────────── */

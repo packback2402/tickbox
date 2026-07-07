@@ -21,7 +21,7 @@ router.get('/my-events', auth, requireOrganizerOrAdmin, async (req, res) => {
         c.name AS category_name,
         COALESCE(sales.tickets_sold, 0)::INT AS tickets_sold,
         COALESCE(sales.revenue, 0)::NUMERIC AS revenue,
-        COALESCE(capacity.tickets_total, 0)::INT AS tickets_total
+        (COALESCE(capacity.tickets_remaining_and_held, 0) + COALESCE(sales.tickets_sold, 0))::INT AS tickets_total
       FROM events e
       JOIN categories c ON e.category_id = c.id
       LEFT JOIN (
@@ -34,7 +34,7 @@ router.get('/my-events', auth, requireOrganizerOrAdmin, async (req, res) => {
         GROUP BY t.event_id
       ) sales ON sales.event_id = e.id
       LEFT JOIN (
-        SELECT event_id, SUM(quantity_available) AS tickets_total
+        SELECT event_id, SUM(quantity_available + quantity_held) AS tickets_remaining_and_held
         FROM tickets
         GROUP BY event_id
       ) capacity ON capacity.event_id = e.id
@@ -378,7 +378,7 @@ router.get('/event-summary/:event_id', auth, requireOrganizerOrAdmin, async (req
         WHERE o.event_id = $1
       `, [event_id]),
       db.query(`
-        SELECT COALESCE(SUM(quantity_available), 0)::INT AS tickets_total
+        SELECT COALESCE(SUM(quantity_available + quantity_held), 0)::INT AS tickets_remaining_and_held
         FROM tickets WHERE event_id = $1
       `, [event_id]),
       db.query(`
@@ -391,7 +391,7 @@ router.get('/event-summary/:event_id', auth, requireOrganizerOrAdmin, async (req
     const event = eventRes.rows[0];
     const sales = salesRes.rows[0];
     const ticketsSold = parseInt(sales.tickets_sold);
-    const ticketsTotal = parseInt(capacityRes.rows[0].tickets_total);
+    const ticketsTotal = parseInt(capacityRes.rows[0].tickets_remaining_and_held) + ticketsSold;
     res.json({
       ...event,
       tickets_sold: ticketsSold,

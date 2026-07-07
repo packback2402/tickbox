@@ -28,10 +28,22 @@ const fileFilter = (_req, file, cb) => {
   else cb(new Error('Chỉ chấp nhận ảnh JPG, PNG, WEBP hoặc GIF.'), false);
 };
 
+const licenseFileFilter = (_req, file, cb) => {
+  const ALLOWED = ['image/jpeg', 'image/png', 'application/pdf'];
+  if (ALLOWED.includes(file.mimetype)) cb(null, true);
+  else cb(new Error('Chỉ chấp nhận PDF, JPG hoặc PNG.'), false);
+};
+
 const upload = multer({
   storage,
   fileFilter,
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+});
+
+const uploadLicense = multer({
+  storage,
+  fileFilter: licenseFileFilter,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB per file
 });
 
 // POST /api/upload/image
@@ -48,6 +60,23 @@ router.post('/upload/image', auth, (req, res) => {
     }
     const url = `/uploads/${req.file.filename}`;
     res.json({ url });
+  });
+});
+
+// POST /api/upload/license — Upload file minh chứng (PDF/JPG/PNG, tối đa 5 file, 10MB/file)
+router.post('/upload/license', auth, (req, res) => {
+  uploadLicense.array('files', 5)(req, res, (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ msg: 'Mỗi file không được vượt quá 10MB.' });
+      }
+      return res.status(400).json({ msg: err.message || 'Upload thất bại.' });
+    }
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ msg: 'Vui lòng chọn ít nhất một file.' });
+    }
+    const urls = req.files.map(f => `/uploads/${f.filename}`);
+    res.json({ urls, count: urls.length });
   });
 });
 

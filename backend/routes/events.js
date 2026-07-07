@@ -98,7 +98,11 @@ router.get('/upcoming', async (req, res) => {
       `SELECT events.*, categories.name AS category_name 
        FROM events
        JOIN categories ON events.category_id = categories.id
-       WHERE events.event_date > NOW() AND events.status = 'published'
+       WHERE events.status = 'published'
+         AND (
+           events.event_date >= NOW()
+           OR (events.end_date IS NOT NULL AND events.end_date >= NOW())
+         )
        ORDER BY events.event_date ASC
        LIMIT 6`
     );
@@ -158,7 +162,7 @@ router.post('/', auth, adminOrOrganizer, async (req, res) => {
       title, description, image_url, event_date, end_date, location, category_id, organizer, is_featured,
       bank_account_holder, bank_account_number, bank_name, bank_branch,
       want_invoice, invoice_business_type, invoice_full_name, invoice_company_name, invoice_tax_code, invoice_address,
-      license_note,
+      license_note, license_files,
     } = req.body;
     if (!req.user || !req.user.id) {
       return res.status(401).json({ msg: "Lỗi xác thực: Không tìm thấy User ID" });
@@ -178,15 +182,15 @@ router.post('/', auth, adminOrOrganizer, async (req, res) => {
         title, description, image_url, event_date, end_date, location, category_id, organizer, is_featured, organizer_id, status,
         bank_account_holder, bank_account_number, bank_name, bank_branch,
         want_invoice, invoice_business_type, invoice_full_name, invoice_company_name, invoice_tax_code, invoice_address,
-        license_note
+        license_note, license_files
        ) 
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22) 
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) 
        RETURNING *`,
       [
         title, description, image_url, event_date, end_date, location, category_id, organizer, featuredValue, organizer_id, eventStatus,
         bank_account_holder || null, bank_account_number || null, bank_name || null, bank_branch || null,
         want_invoice || false, invoice_business_type || 'personal', invoice_full_name || null, invoice_company_name || null, invoice_tax_code || null, invoice_address || null,
-        license_note || null,
+        license_note || null, license_files || null,
       ]
     );
     if (newEvent.rows.length > 0) {
@@ -233,7 +237,8 @@ router.get('/:id', async (req, res) => {
         events.invoice_company_name,
         events.invoice_tax_code,
         events.invoice_address,
-        events.license_note
+        events.license_note,
+        events.license_files
       FROM events
       JOIN categories ON events.category_id = categories.id
       WHERE events.id = $1
@@ -256,7 +261,7 @@ router.put('/:id', auth, adminOrOrganizer, async (req, res) => {
       title, description, image_url, event_date, end_date, location, category_id, organizer, is_featured,
       bank_account_holder, bank_account_number, bank_name, bank_branch,
       want_invoice, invoice_business_type, invoice_full_name, invoice_company_name, invoice_tax_code, invoice_address,
-      license_note,
+      license_note, license_files,
     } = req.body;
     if (!title || !event_date || !location) {
       return res.status(400).json({ msg: "Thiếu thông tin bắt buộc (Tên, Ngày, Địa điểm)!" });
@@ -303,15 +308,16 @@ router.put('/:id', auth, adminOrOrganizer, async (req, res) => {
            invoice_company_name = $17,
            invoice_tax_code = $18,
            invoice_address = $19,
-           license_note = $20
+           license_note = $20,
+           license_files = $21
            ${statusUpdate}
-       WHERE id = $21 
+       WHERE id = $22 
        RETURNING *`,
       [
         title, description, image_url, event_date, end_date, location, category_id, organizer, featuredValue,
         bank_account_holder || null, bank_account_number || null, bank_name || null, bank_branch || null,
         want_invoice || false, invoice_business_type || 'personal', invoice_full_name || null, invoice_company_name || null, invoice_tax_code || null, invoice_address || null,
-        license_note || null,
+        license_note || null, license_files || null,
         id,
       ]
     );

@@ -280,8 +280,8 @@ const EventDetailModal = ({ event, onClose, onEdit, onApprove, onReject, onDelet
         </div>
 
         {/* Tabs */}
-        <div style={{ display: 'flex', gap: '6px', padding: '12px 20px 0', flexShrink: 0 }}>
-          {[['info','Thông tin'],['tickets','Hạng vé'],['actions','Hành động']].map(([id,label]) => (
+        <div style={{ display: 'flex', gap: '6px', padding: '12px 20px 0', flexShrink: 0, flexWrap: 'wrap' }}>
+          {[['info','Thông tin'],['tickets','Hạng vé'],['license','Minh chứng & TT'],['actions','Hành động']].map(([id,label]) => (
             <button key={id} onClick={() => setTab(id)} style={tabStyle(id)}>{label}</button>
           ))}
         </div>
@@ -325,6 +325,65 @@ const EventDetailModal = ({ event, onClose, onEdit, onApprove, onReject, onDelet
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {tab === 'license' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+              {/* Minh chứng cấp phép */}
+              <div style={{ background: '#1a1a1a', border: '1px solid #252525', borderRadius: '12px', padding: '18px' }}>
+                <div style={{ fontSize: '11px', color: '#FFC107', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  ⚠️ Minh chứng cấp phép
+                </div>
+                <div style={{ color: '#bbb', fontSize: '13px', lineHeight: '1.7', marginBottom: '12px', whiteSpace: 'pre-wrap' }}>
+                  {event.license_note || <span style={{ color: '#444', fontStyle: 'italic' }}>Không có ghi chú</span>}
+                </div>
+                {/* File minh chứng */}
+                {event.license_files && event.license_files.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ fontSize: '11px', color: '#666', fontWeight: '600', marginBottom: '4px' }}>File đính kèm ({event.license_files.length}):</div>
+                    {event.license_files.map((url, i) => {
+                      const filename = url.split('/').pop();
+                      const isPdf = filename.toLowerCase().endsWith('.pdf');
+                      // URL /uploads/... là relative path — CRA proxy (dev) và nginx (production) đều xử lý đúng
+                      // Không dùng REACT_APP_API_URL vì nó là '/api', không phải base domain
+                      const fullUrl = url.startsWith('http') ? url : url;
+                      return (
+                        <a key={i} href={fullUrl} target="_blank" rel="noopener noreferrer"
+                          style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#111', borderRadius: '8px', padding: '10px 14px', border: '1px solid #2a2a2a', textDecoration: 'none', color: '#ccc', fontSize: '13px' }}>
+                          <span style={{ color: isPdf ? '#ff6b6b' : '#2CC275' }}>📄</span>
+                          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{filename}</span>
+                          <span style={{ color: '#444', fontSize: '11px' }}>Xem</span>
+                        </a>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div style={{ color: '#444', fontStyle: 'italic', fontSize: '13px' }}>Chưa có file minh chứng</div>
+                )}
+              </div>
+
+              {/* Thông tin thanh toán */}
+              <div style={{ background: '#1a1a1a', border: '1px solid #252525', borderRadius: '12px', padding: '18px' }}>
+                <div style={{ fontSize: '11px', color: '#2CC275', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '12px' }}>Thông tin ngân hàng</div>
+                {event.bank_account_number ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    {[
+                      { label: 'Chủ tài khoản', value: event.bank_account_holder },
+                      { label: 'Số tài khoản', value: event.bank_account_number },
+                      { label: 'Ngân hàng', value: event.bank_name },
+                      { label: 'Chi nhánh', value: event.bank_branch },
+                    ].map(({ label, value }, i) => (
+                      <div key={i} style={{ background: '#111', borderRadius: '8px', padding: '10px 12px' }}>
+                        <div style={{ fontSize: '11px', color: '#555', fontWeight: '600', marginBottom: '3px' }}>{label}</div>
+                        <div style={{ color: '#ddd', fontSize: '14px', fontWeight: '600' }}>{value || '—'}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ color: '#444', fontStyle: 'italic', fontSize: '13px' }}>Chưa có thông tin tài khoản</div>
+                )}
+              </div>
             </div>
           )}
 
@@ -2309,90 +2368,6 @@ const AdminPage = () => {
                       onFocus={e => e.target.style.borderColor = '#2CC275'} onBlur={e => e.target.style.borderColor = '#444'} />
                   </div>
                 </div>
-
-                {/* Invoice section */}
-                <div style={{ borderTop: '1px solid #222', paddingTop: '22px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>
-                    <div>
-                      <div style={{ color: '#fff', fontWeight: '700', fontSize: '14px', display:'flex', alignItems:'center', gap:'8px' }}>
-                        Hoá đơn đỏ (VAT)
-                      </div>
-                      <div style={{ color: '#555', fontSize: '12px', marginTop: '2px' }}>Yêu cầu xuất hoá đơn GTGT sau khi sự kiện kết thúc</div>
-                    </div>
-                    {/* Toggle switch */}
-                    <button
-                      type="button"
-                      onClick={() => setWantInvoice(v => !v)}
-                      style={{
-                        width: '48px', height: '26px', borderRadius: '13px', border: 'none', cursor: 'pointer',
-                        background: wantInvoice ? 'linear-gradient(135deg,#FFC107,#e6a800)' : '#252525',
-                        position: 'relative', transition: 'background 0.25s', flexShrink: 0,
-                        boxShadow: wantInvoice ? '0 2px 10px rgba(255,193,7,0.35)' : 'none',
-                      }}
-                    >
-                      <span style={{
-                        position: 'absolute', top: '3px', left: wantInvoice ? '25px' : '3px',
-                        width: '20px', height: '20px', borderRadius: '50%', background: '#fff',
-                        transition: 'left 0.25s', boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
-                      }} />
-                    </button>
-                  </div>
-
-                  {wantInvoice && (
-                    <div style={{ background: '#111', borderRadius: '12px', padding: '20px', border: '1px solid #1e1e1e' }}>
-                      <div style={{ marginBottom: '16px' }}>
-                        <label style={labelStyle}>Loại hình kinh doanh</label>
-                        <div style={{ display: 'flex', gap: '10px' }}>
-                          {[{value:'personal',label:'Cá nhân'},{value:'company',label:'Doanh nghiệp'}].map(opt => (
-                            <button key={opt.value} type="button"
-                              onClick={() => setInvoiceInfo(p => ({...p, businessType: opt.value}))}
-                              style={{
-                                flex: 1, padding: '10px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px',
-                                background: invoiceInfo.businessType === opt.value ? '#FFC10720' : 'transparent',
-                                border: `1px solid ${invoiceInfo.businessType === opt.value ? '#FFC107' : '#333'}`,
-                                color: invoiceInfo.businessType === opt.value ? '#FFC107' : '#555',
-                                transition: 'all 0.15s',
-                              }}
-                            >{opt.label}</button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                        {invoiceInfo.businessType === 'company' && (
-                          <div style={{ gridColumn: '1 / -1' }}>
-                            <label style={labelStyle}>Tên công ty <span style={{color:'#ff4d4f'}}>*</span></label>
-                            <input style={inputStyle} placeholder="Công ty TNHH..."
-                              value={invoiceInfo.companyName}
-                              onChange={e => setInvoiceInfo(p => ({...p, companyName: e.target.value}))}
-                              onFocus={e => e.target.style.borderColor = '#FFC107'} onBlur={e => e.target.style.borderColor = '#444'} />
-                          </div>
-                        )}
-                        <div>
-                          <label style={labelStyle}>{invoiceInfo.businessType === 'company' ? 'Người đại diện' : 'Họ và tên'} <span style={{color:'#ff4d4f'}}>*</span></label>
-                          <input style={inputStyle} placeholder="Nguyễn Văn A"
-                            value={invoiceInfo.fullName}
-                            onChange={e => setInvoiceInfo(p => ({...p, fullName: e.target.value}))}
-                            onFocus={e => e.target.style.borderColor = '#FFC107'} onBlur={e => e.target.style.borderColor = '#444'} />
-                        </div>
-                        <div>
-                          <label style={labelStyle}>Mã số thuế <span style={{color:'#ff4d4f'}}>*</span></label>
-                          <input style={inputStyle} placeholder="0123456789" type="text" inputMode="numeric"
-                            value={invoiceInfo.taxCode}
-                            onChange={e => setInvoiceInfo(p => ({...p, taxCode: e.target.value.replace(/\D/g,'').slice(0,13)}))}
-                            onFocus={e => e.target.style.borderColor = '#FFC107'} onBlur={e => e.target.style.borderColor = '#444'} />
-                        </div>
-                        <div style={{ gridColumn: '1 / -1' }}>
-                          <label style={labelStyle}>Địa chỉ <span style={{color:'#ff4d4f'}}>*</span></label>
-                          <input style={inputStyle} placeholder="Số nhà, phố, phường/xã, quận/huyện, tỉnh/thành phố..."
-                            value={invoiceInfo.address}
-                            onChange={e => setInvoiceInfo(p => ({...p, address: e.target.value}))}
-                            onFocus={e => e.target.style.borderColor = '#FFC107'} onBlur={e => e.target.style.borderColor = '#444'} />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
               </div>
 
               {/* ── Navigation buttons ──────────────────────────────────────────── */}
@@ -2455,12 +2430,7 @@ const AdminPage = () => {
 
                     <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                       <button
-                        onClick={async () => {
-                          try {
-                            const tkRes = await api.get(`/api/tickets/${ev.id}`);
-                            setViewingPendingEvent({ event: ev, tickets: tkRes.data });
-                          } catch { setViewingPendingEvent({ event: ev, tickets: [] }); }
-                        }}
+                        onClick={() => setViewingEvent(ev)}
                         style={{ background: 'transparent', border: '1px solid #2CC275', color: '#2CC275', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
                       >
                         <FaEye size={12} /> Xem chi tiết

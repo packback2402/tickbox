@@ -290,7 +290,9 @@
 }
 
 .payment-result.success-result {
-  border-color: rgba(44, 194, 117, 0.5);
+  border-color: rgba(44, 194, 117, 0.3);
+  background: radial-gradient(ellipse at top, rgba(44,194,117,0.06) 0%, rgba(20,20,30,0.95) 60%);
+  padding: 0;
 }
 
 .payment-result.error-result {

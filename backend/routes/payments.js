@@ -29,7 +29,8 @@ router.post('/init', auth, async (req, res) => {
       ticket_id = null,
       ticket_quantity = null,
       zone_id = null,
-      quantity: zone_quantity = null
+      quantity: zone_quantity = null,
+      schedule_id = null
     } = req.body;
 
     // Validate input - must have seats OR ticket_id OR zone_id
@@ -258,10 +259,12 @@ router.post('/init', auth, async (req, res) => {
       });
     }
 
-    // Không tính phí dịch vụ — người mua chỉ trả đúng giá vé
-    const commission = 0;
-    const net_amount = total_amount;
-    const vnpayAmount = Math.round(total_amount); // Đúng bằng giá vé
+    // Tính phí dịch vụ 3.5% — khách trả = giá vé + phí dịch vụ
+    const PLATFORM_FEE_RATE = 0.035;
+    const commission = Math.round(total_amount * PLATFORM_FEE_RATE);
+    const customer_total = total_amount + commission;  // Tổng khách phải trả
+    const net_amount = total_amount;                   // Tiền thực của organizer
+    const vnpayAmount = Math.round(customer_total);    // Gửi đúng số tiền có phí lên VNPay
 
     // Create order record
     const orderCode = generateOrderId();
@@ -270,7 +273,7 @@ router.post('/init', auth, async (req, res) => {
        (user_id, event_id, order_code, total_amount, commission, net_amount, status, payment_method, expires_at)
        VALUES ($1, $2, $3, $4, $5, $6, 'pending', 'vnpay', NOW() + INTERVAL '10 minutes')
        RETURNING id, order_code, total_amount, commission, net_amount`,
-      [userId, event_id, orderCode, total_amount, commission, net_amount]
+      [userId, event_id, orderCode, customer_total, commission, net_amount]
     );
 
     const orderId = orderRes.rows[0].id;
@@ -287,9 +290,9 @@ router.post('/init', auth, async (req, res) => {
       } else if (item.type === 'ticket') {
         await client.query(
           `INSERT INTO order_items 
-           (order_id, ticket_id, quantity, unit_price, total_price, status)
-           VALUES ($1, $2, $3, $4, $5, 'pending')`,
-          [orderId, item.ticket_id, item.quantity, item.price, item.quantity * item.price]
+           (order_id, ticket_id, quantity, unit_price, total_price, status, schedule_id)
+           VALUES ($1, $2, $3, $4, $5, 'pending', $6)`,
+          [orderId, item.ticket_id, item.quantity, item.price, item.quantity * item.price, schedule_id || null]
         );
       } else if (item.type === 'zone') {
         await client.query(
@@ -356,7 +359,7 @@ router.post('/init', auth, async (req, res) => {
     );
 
     // Build order description for VNPay (ASCII-safe, max 255 chars)
-    let orderDescription = `Tickbox ${eventRes.rows[0].title}`;
+    let orderDescription = `TiTicket ${eventRes.rows[0].title}`;
     if (Array.isArray(seat_ids) && seat_ids.length > 0) {
       orderDescription += ` ${seat_ids.length} ghe`;
     } else if (ticket_id) {
@@ -393,9 +396,10 @@ router.post('/init', auth, async (req, res) => {
       order: {
         id: orderId,
         code: orderCode,
-        total_amount: parseFloat(orderRes.rows[0].total_amount),
-        commission:   parseFloat(orderRes.rows[0].commission),
-        net_amount:   parseFloat(orderRes.rows[0].net_amount)
+        base_amount:    total_amount,
+        service_fee:    commission,
+        total_amount:   vnpayAmount,
+        net_amount:     parseFloat(orderRes.rows[0].net_amount)
       },
       payment: {
         payUrl:   paymentUrl,
@@ -502,7 +506,7 @@ router.post('/vnpay/verify', auth, async (req, res) => {
       // 6a. Payment success — get items and fulfill order
 
       const itemsRes = await client.query(
-        `SELECT id as item_id, seat_id, ticket_id, zone_id,
+        `SELECT id as item_id, seat_id, ticket_id, zone_id, schedule_id,
                 COALESCE(quantity, quantity_ordered, 1) as qty
          FROM order_items WHERE order_id = $1`,
         [order.id]
@@ -535,6 +539,15 @@ router.post('/vnpay/verify', auth, async (req, res) => {
             `UPDATE ticket_holds SET status = 'confirmed' WHERE order_id = $1 AND ticket_id = $2`,
             [order.id, item.ticket_id]
           );
+          // Cập nhật daily_sold trong schedule_tickets nếu đây là sự kiện nhiều lịch diễn
+          if (item.schedule_id) {
+            await client.query(
+              `UPDATE schedule_tickets
+               SET daily_sold = daily_sold + $1
+               WHERE schedule_id = $2 AND ticket_id = $3`,
+              [item.qty, item.schedule_id, item.ticket_id]
+            );
+          }
         }
         if (item.zone_id) {
           await client.query(

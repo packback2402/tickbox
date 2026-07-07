@@ -1,4 +1,4 @@
--- Tickbox Payment System Migration
+-- TiTicket Payment System Migration
 -- Created: 15 Apr 2026
 -- Payment tables for VNPay integration
 

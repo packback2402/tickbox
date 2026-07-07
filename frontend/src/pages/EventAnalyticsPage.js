@@ -60,6 +60,10 @@ const EventAnalyticsPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
 
+  // Xác định đường về dashboard theo role
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const dashboardPath = user?.role === 'admin' ? '/admin' : '/organizer';
+
   const [summary, setSummary] = useState(null);
   const [timeline, setTimeline] = useState([]);
   const [ticketTypes, setTicketTypes] = useState([]);
@@ -131,7 +135,7 @@ const EventAnalyticsPage = () => {
     <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16, color: '#ff4d4f' }}>
       <div style={{ fontSize: 40, color: '#ff4d4f' }}>!</div>
       <p>{error}</p>
-      <Link to="/organizer" style={{ color: '#2CC275' }}>← Quay lại Dashboard</Link>
+      <Link to={dashboardPath} style={{ color: '#2CC275' }}>← Quay lại Dashboard</Link>
     </div>
   );
 
@@ -207,7 +211,7 @@ const EventAnalyticsPage = () => {
       {/* Top Nav */}
       <div style={{ background: '#111', borderBottom: '1px solid #1e1e1e', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 100 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <button onClick={() => navigate('/organizer')} style={{ background: 'transparent', border: '1px solid #333', color: '#aaa', padding: '8px 16px', borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
+          <button onClick={() => navigate(dashboardPath)} style={{ background: 'transparent', border: '1px solid #333', color: '#aaa', padding: '8px 16px', borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
             <FaArrowLeft /> Dashboard
           </button>
           <div>

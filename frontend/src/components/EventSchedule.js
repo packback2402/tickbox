@@ -121,6 +121,8 @@ const ScheduleListItem = ({ schedule, tickets, event, isExpanded, onToggle, onBu
   const hasDailyData = schedule.tickets && schedule.tickets.length > 0;
   const totalDailyAvailable = hasDailyData ? dayTickets.reduce((sum, t) => sum + (t.daily_available || 0), 0) : null;
   const isSoldOut = hasDailyData && totalDailyAvailable === 0;
+  // Nếu TẤT CẢ vé đều là ĐỨNG → ẩn số lượng tổng trên header
+  const allStanding = hasDailyData && dayTickets.every(t => /đứng|standing|ga|general/i.test(t.ticket_type || t.type || ''));
 
   return (
     <div style={{
@@ -164,7 +166,7 @@ const ScheduleListItem = ({ schedule, tickets, event, isExpanded, onToggle, onBu
               color: isSoldOut ? '#ff4d4f' : '#888',
               fontWeight: '500',
             }}>
-              {isSoldOut ? 'Hết vé' : `Còn ${totalDailyAvailable} vé`}
+              {isSoldOut ? 'Hết vé' : (!allStanding ? `Còn ${totalDailyAvailable} vé` : null)}
             </span>
           )}
           <button
@@ -239,7 +241,12 @@ const ScheduleListItem = ({ schedule, tickets, event, isExpanded, onToggle, onBu
                   </div>
                   {hasDailyData && (
                     <div style={{ fontSize: '11px', color: isTkSoldOut ? '#ff4d4f' : '#888', marginTop: '3px' }}>
-                      {isTkSoldOut ? 'Hết vé' : `Còn ${available} vé`}
+                      {(() => {
+                        const isStanding = /đứng|standing|ga|general/i.test(ticket.ticket_type || ticket.type || '');
+                        if (isTkSoldOut) return 'Hết vé';
+                        if (isStanding) return null;
+                        return `Còn ${available} vé`;
+                      })()}
                     </div>
                   )}
                 </div>
@@ -383,6 +390,7 @@ const EventSchedule = ({ eventId, event, tickets, onSelectDate }) => {
     }
 
     const scheduleInfo = {
+      schedule_id: schedule.id,
       selected_date: schedule.schedule_date,
       schedule_time: `${formatTime(schedule.start_time)} - ${formatTime(schedule.end_time)}`,
     };
@@ -614,6 +622,7 @@ const EventSchedule = ({ eventId, event, tickets, onSelectDate }) => {
                   if (schedule) {
                     // Select the date and notify parent
                     const scheduleInfo = {
+                      schedule_id: schedule.id,
                       selected_date: schedule.schedule_date,
                       schedule_time: `${formatTime(schedule.start_time)} - ${formatTime(schedule.end_time)}`,
                     };

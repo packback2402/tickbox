@@ -108,6 +108,11 @@ const PaymentPage = () => {
         paymentPayload.ticket_quantity = orderData.quantity || 1;
       }
 
+      // Truyền schedule_id nếu đây là sự kiện nhiều lịch diễn
+      if (orderData.schedule_id) {
+        paymentPayload.schedule_id = orderData.schedule_id;
+      }
+
       const response = await axios.post(
         '/api/payments/init',
         paymentPayload,
@@ -155,18 +160,86 @@ const PaymentPage = () => {
 
     if (paymentResult.type === 'success') {
       return (
-        <div className="payment-result success-result">
-          <FaCheckCircle size={56} color="#2CC275" />
-          <h2>Thanh toán thành công!</h2>
-          {paymentResult.mock && (
-            <p style={{ fontSize: 12, opacity: 0.6, marginBottom: 0 }}>
-              [Dev Mode - Chế độ mô phỏng]
-            </p>
-          )}
-          <p>Vé của bạn đã được xác nhận. Đang chuyển đến trang vé...</p>
-          <div className="spinner" style={{ marginTop: 24 }}>
-            <FaSpinner size={28} />
+        <div className="payment-result success-result" style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+          gap: 0, padding: '48px 32px', textAlign: 'center',
+        }}>
+          {/* Animated checkmark */}
+          <div style={{
+            width: 96, height: 96, borderRadius: '50%',
+            background: 'linear-gradient(135deg, #2CC275, #1da562)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            marginBottom: 24,
+            boxShadow: '0 0 0 16px rgba(44,194,117,0.12), 0 8px 32px rgba(44,194,117,0.35)',
+            animation: 'popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+          }}>
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+              <polyline points="10,26 20,36 38,16" stroke="white" strokeWidth="5"
+                strokeLinecap="round" strokeLinejoin="round"
+                style={{ strokeDasharray: 50, strokeDashoffset: 0, animation: 'drawCheck 0.4s ease 0.2s both' }} />
+            </svg>
           </div>
+
+          <h2 style={{ color: '#fff', fontSize: 26, fontWeight: 800, margin: '0 0 8px' }}>
+            Thanh toán thành công!
+          </h2>
+          <p style={{ color: '#888', fontSize: 14, margin: '0 0 32px', lineHeight: 1.6 }}>
+            Vé của bạn đã được xác nhận và gửi vào tài khoản.
+          </p>
+
+          {paymentResult.orderCode && (
+            <div style={{
+              background: 'rgba(44,194,117,0.08)', border: '1px solid rgba(44,194,117,0.2)',
+              borderRadius: 12, padding: '14px 28px', marginBottom: 32,
+              display: 'flex', alignItems: 'center', gap: 10,
+            }}>
+              <span style={{ color: '#666', fontSize: 13 }}>Mã đơn hàng:</span>
+              <span style={{ color: '#2CC275', fontWeight: 700, fontSize: 15, letterSpacing: 1 }}>
+                {paymentResult.orderCode}
+              </span>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
+            <button
+              onClick={() => navigate('/my-tickets')}
+              style={{
+                background: 'linear-gradient(135deg, #2CC275, #1da562)',
+                color: '#fff', border: 'none', borderRadius: 10,
+                padding: '13px 28px', fontWeight: 700, fontSize: 15,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
+                boxShadow: '0 4px 16px rgba(44,194,117,0.35)',
+              }}
+            >
+              Xem vé của tôi
+            </button>
+            <button
+              onClick={() => navigate('/')}
+              style={{
+                background: 'transparent', color: '#666',
+                border: '1px solid #333', borderRadius: 10,
+                padding: '13px 28px', fontWeight: 600, fontSize: 14,
+                cursor: 'pointer',
+              }}
+            >
+              Về trang chủ
+            </button>
+          </div>
+
+          <p style={{ color: '#444', fontSize: 12, marginTop: 24 }}>
+            Tự động chuyển đến trang vé sau 3 giây...
+          </p>
+
+          <style>{`
+            @keyframes popIn {
+              from { transform: scale(0); opacity: 0; }
+              to   { transform: scale(1); opacity: 1; }
+            }
+            @keyframes drawCheck {
+              from { stroke-dashoffset: 50; }
+              to   { stroke-dashoffset: 0; }
+            }
+          `}</style>
         </div>
       );
     }

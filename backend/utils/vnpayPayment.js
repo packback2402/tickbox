@@ -54,13 +54,13 @@ const VNPAY_CONFIG = {
  */
 function createPaymentUrl({ orderId, amount, orderInfo, ipAddr = '127.0.0.1', bankCode = '', locale = 'vn' }) {
   // Sanitize orderInfo — ASCII only, spaces → underscore
-  const safeOrderInfo = (orderInfo || 'Tickbox')
+  const safeOrderInfo = (orderInfo || 'TiTicket')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')        // strip diacritics
     .replace(/[^a-zA-Z0-9\s\-_.]/g, ' ')   // remove special chars
     .replace(/\s+/g, ' ')
     .trim()
-    .substring(0, 255) || 'Tickbox Payment';
+    .substring(0, 255) || 'TiTicket Payment';
 
   // Hạn thanh toán: 10 phút
   const expireDate = new Date();
