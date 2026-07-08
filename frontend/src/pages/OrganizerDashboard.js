@@ -819,7 +819,7 @@ const OrganizerDashboard = () => {
                   <div style={{ gridColumn: '1/-1' }}>
                     <ImageUploader
                       currentUrl={eventData.image_url ? (eventData.image_url.startsWith('http') ? eventData.image_url : `http://localhost:5001${eventData.image_url}`) : ''}
-                      onUpload={url => setEventData({ ...eventData, image_url: url })}
+                      onUpload={url => setEventData(d => ({ ...d, image_url: url }))}
                       label="Ảnh bìa sự kiện" aspectRatio={16 / 9}
                       maxSizeMB={5}
                       minWidth={1200}

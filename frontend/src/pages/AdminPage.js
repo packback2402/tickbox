@@ -2101,7 +2101,7 @@ const AdminPage = () => {
                           ? eventData.image_url
                           : `http://localhost:5001${eventData.image_url}`)
                       : ''}
-                    onUpload={url => setEventData({ ...eventData, image_url: url })}
+                    onUpload={url => setEventData(d => ({ ...d, image_url: url }))}
                     label="Ảnh bìa sự kiện"
                     aspectRatio={16 / 9}
                     required
