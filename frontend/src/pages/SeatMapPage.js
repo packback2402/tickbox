@@ -1115,7 +1115,7 @@ const SeatMapPage = () => {
 
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', fontWeight: '700', marginBottom: '14px' }}>
                     <span style={{ color: '#aaa' }}>Tổng cộng</span>
-                    <span style={{ color: '#2CC275' }}>{fmt(selectedSeats.reduce((sum, seat) => sum + seat.price, 0))}</span>
+                    <span style={{ color: '#2CC275' }}>{fmt(selectedSeats.reduce((sum, seat) => sum + parseFloat(seat.price || 0), 0))}</span>
                   </div>
 
                   {!holdInfo ? (
