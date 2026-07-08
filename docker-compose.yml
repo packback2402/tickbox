@@ -64,7 +64,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        REACT_APP_API_URL: /api   # Nginx sẽ proxy /api → backend
+        REACT_APP_API_URL: ""   # Empty: /api prefix đã có trong từng API call, không set /api ở đây
     container_name: titicket_frontend
     restart: unless-stopped
     depends_on:
