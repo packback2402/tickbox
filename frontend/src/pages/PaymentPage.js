@@ -64,8 +64,61 @@ const PaymentPage = () => {
       const paramsObj = {};
       params.forEach((value, key) => { paramsObj[key] = value; });
       verifyVNPayReturn(paramsObj);
+    } else if (orderData && !submitting && !paymentResult) {
+      // Auto-initiate payment immediately when arriving with orderData
+      handleAutoInitiatePayment();
     }
-  }, [location.search, verifyVNPayReturn]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Auto-initiate (no button needed — fires on mount)
+  // ─────────────────────────────────────────────────────────────────────────────
+  const handleAutoInitiatePayment = async () => {
+    if (!orderData) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) { navigate('/login'); return; }
+
+      const paymentPayload = {};
+      if (orderData.seat_ids && orderData.seat_ids.length > 0) {
+        paymentPayload.seat_ids = orderData.seat_ids;
+      } else {
+        paymentPayload.seat_ids = [];
+      }
+      if (orderData.zone_id) {
+        paymentPayload.zone_id = orderData.zone_id;
+        paymentPayload.quantity = orderData.quantity || 0;
+      }
+      if (orderData.ticket_id) {
+        paymentPayload.ticket_id = orderData.ticket_id;
+        paymentPayload.ticket_quantity = orderData.quantity || 1;
+      }
+      if (orderData.schedule_id) {
+        paymentPayload.schedule_id = orderData.schedule_id;
+      }
+
+      const response = await axios.post(
+        '/api/payments/init',
+        paymentPayload,
+        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+      );
+
+      if (response.data.success && response.data.payment?.payUrl) {
+        sessionStorage.setItem('lastOrderCode', response.data.order.code);
+        if (orderData.event_id) sessionStorage.setItem('lastEventId', orderData.event_id);
+        window.location.href = response.data.payment.payUrl;
+      } else {
+        setError('Không thể tạo liên kết thanh toán. Vui lòng thử lại.');
+        setSubmitting(false);
+      }
+    } catch (err) {
+      const errMsg = err.response?.data?.msg || err.response?.data?.detail || 'Lỗi khởi tạo thanh toán. Vui lòng thử lại.';
+      setError(errMsg);
+      setSubmitting(false);
+    }
+  };
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Initiate VNPay payment
@@ -344,6 +397,31 @@ const PaymentPage = () => {
   const baseAmount = orderData?.total_amount || 0;
   const serviceFee  = Math.round(baseAmount * PLATFORM_FEE_RATE);
   const displayTotal = baseAmount + serviceFee;
+
+  // Show redirect loading screen while auto-initiating payment
+  if (submitting && !error) {
+    return (
+      <div className="payment-page">
+        <div className="payment-container" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: '24px' }}>
+          <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(44,194,117,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <FaSpinner className="spinner-icon" style={{ fontSize: 32, color: '#2CC275', animation: 'spin 1s linear infinite' }} />
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <p style={{ color: '#fff', fontSize: '18px', fontWeight: '700', marginBottom: '8px' }}>Đang chuyển đến cổng thanh toán VNPay...</p>
+            <p style={{ color: '#888', fontSize: '14px' }}>Vui lòng không đóng trang này</p>
+          </div>
+          {orderData && (
+            <div style={{ background: '#1e1e1e', border: '1px solid #333', borderRadius: '12px', padding: '16px 28px', textAlign: 'center' }}>
+              <p style={{ color: '#888', fontSize: '13px', marginBottom: '4px' }}>{orderData.event_title}</p>
+              <p style={{ color: '#2CC275', fontSize: '22px', fontWeight: '800' }}>
+                {displayTotal.toLocaleString('vi-VN')} đ
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="payment-page">

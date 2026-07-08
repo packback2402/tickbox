@@ -111,7 +111,7 @@ const SeatmapViewerModal = ({ event, onClose, onEdit, onDelete }) => {
 
           {data && (
             <>
-              {/* Type badge */}
+              {/* Type badge + count */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
                 <span style={{
                   background: '#2CC27520', color: '#2CC275', padding: '4px 12px',
@@ -120,11 +120,14 @@ const SeatmapViewerModal = ({ event, onClose, onEdit, onDelete }) => {
                   {typeLabel[data.type] || data.type}
                 </span>
                 <span style={{ color: '#555', fontSize: '12px' }}>
-                  {data.zones?.length || 0} khu vực
+                  {data.type === 'seat'
+                    ? `${data.sections?.length || 0} khu vực · ${data.sections?.reduce((s, sec) => s + Object.values(sec.rows || {}).reduce((a, r) => a + r.length, 0), 0) || 0} ghế`
+                    : `${data.zones?.length || 0} khu vực`
+                  }
                 </span>
               </div>
 
-              {/* SVG Preview */}
+              {/* SVG Preview (zone/mixed) */}
               {data.event?.svg_layout && (
                 <div ref={svgRef} style={{
                   background: '#0d0d0d', borderRadius: '12px', border: '1px solid #1e1e1e',
@@ -140,67 +143,162 @@ const SeatmapViewerModal = ({ event, onClose, onEdit, onDelete }) => {
                 </div>
               )}
 
-              {/* Zone list */}
-              <div style={{ marginBottom: '8px' }}>
-                <h4 style={{ color: '#aaa', fontSize: '12px', textTransform: 'uppercase', margin: '0 0 12px', letterSpacing: '0.5px' }}>
-                  Danh sách khu vực
-                </h4>
-                <div style={{ display: 'grid', gap: '8px' }}>
-                  {(data.zones || []).map((zone, idx) => {
-                    const isStanding = zone.zone_type === 'standing' || (!zone.zone_type && !zone.seat_total);
-                    const isSeated = zone.zone_type === 'seated';
-                    const isBA = zone.zone_type === 'best_available';
+              {/* SEAT type: unified grid preview */}
+              {data.type === 'seat' && data.sections?.length > 0 && (() => {
+                // Build seatLookup for unified grid
+                const seatLookup = {};
+                let maxCol = 0;
+                const allRows = new Set();
+                data.sections.forEach(sec => {
+                  Object.entries(sec.rows || {}).forEach(([rowLabel, seats]) => {
+                    allRows.add(rowLabel);
+                    seats.forEach(seat => {
+                      const col = seat.number;
+                      if (col > maxCol) maxCol = col;
+                      seatLookup[`${rowLabel}-${col}`] = { sec, seat };
+                    });
+                  });
+                });
+                const sortedRows = Array.from(allRows).sort();
+                const stagePos = data.event?.stage_position || 'top';
+                const isVertical = stagePos === 'left' || stagePos === 'right';
+                const flexDir = stagePos === 'left' ? 'row'
+                  : stagePos === 'right' ? 'row-reverse'
+                  : stagePos === 'bottom' ? 'column-reverse' : 'column';
 
-                    let available, total;
-                    if (isSeated || isBA) {
-                      available = zone.seat_available ?? 0;
-                      total = zone.seat_total ?? zone.capacity ?? 0;
-                    } else {
-                      total = zone.capacity || 0;
-                      available = total - (zone.sold || 0);
-                    }
-                    const sold = total - available;
+                const StageEl = () => stagePos === 'none' ? null : (
+                  <div style={{
+                    display: 'flex', justifyContent: 'center', alignItems: 'center', flexShrink: 0,
+                    ...(isVertical
+                      ? { paddingRight: stagePos === 'left' ? 14 : 0, paddingLeft: stagePos === 'right' ? 14 : 0 }
+                      : { marginBottom: stagePos === 'top' ? 12 : 0, marginTop: stagePos === 'bottom' ? 12 : 0 }),
+                  }}>
+                    <span style={{
+                      background: '#555', color: '#ccc', fontWeight: 800, letterSpacing: 2, fontSize: 10,
+                      padding: isVertical ? '40px 6px' : '5px 40px',
+                      borderRadius: stagePos === 'top' ? '0 0 20px 20px'
+                        : stagePos === 'bottom' ? '20px 20px 0 0'
+                        : stagePos === 'left' ? '0 20px 20px 0' : '20px 0 0 20px',
+                      writingMode: isVertical ? 'vertical-rl' : 'horizontal-tb',
+                      transform: stagePos === 'left' ? 'rotate(180deg)' : 'none',
+                      display: 'inline-block',
+                    }}>SÂN KHẤU</span>
+                  </div>
+                );
 
-                    return (
-                      <div key={zone.id || idx} style={{
-                        display: 'flex', alignItems: 'center', gap: '12px',
-                        padding: '12px 14px', background: '#141414', borderRadius: '10px',
-                        border: '1px solid #1e1e1e',
-                      }}>
-                        {/* Color dot */}
-                        <div style={{
-                          width: '10px', height: '36px', borderRadius: '5px',
-                          background: zone.color || '#4A90D9', flexShrink: 0
-                        }} />
-
-                        {/* Info */}
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
-                            <span style={{ color: '#eee', fontSize: '14px', fontWeight: '600' }}>{zone.name}</span>
-                            <span style={{
-                              fontSize: '10px', padding: '1px 6px', borderRadius: '4px', fontWeight: '600',
-                              background: isStanding ? '#FFC10715' : isBA ? '#9b59b615' : '#1890ff15',
-                              color: isStanding ? '#FFC107' : isBA ? '#9b59b6' : '#1890ff',
-                            }}>
-                              {isStanding && <><FaUsers style={{ fontSize: '8px', marginRight: '3px' }} />Đứng</>}
-                              {isSeated && <><FaChair style={{ fontSize: '8px', marginRight: '3px' }} />Ngồi</>}
-                              {isBA && <><FaMagic style={{ fontSize: '8px', marginRight: '3px' }} />Best Available</>}
-                            </span>
+                return (
+                  <div style={{
+                    background: '#0d0d0d', borderRadius: '12px', border: '1px solid #1e1e1e',
+                    padding: '16px', marginBottom: '20px', overflow: 'auto', maxHeight: '400px',
+                  }}>
+                    <div style={{ display: 'flex', flexDirection: flexDir, alignItems: isVertical ? 'center' : 'stretch', gap: isVertical ? 16 : 0, width: 'max-content' }}>
+                      <StageEl />
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        {sortedRows.map(rowLabel => (
+                          <div key={rowLabel} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                            <span style={{ width: 16, color: '#555', fontSize: 9, fontWeight: 800, textAlign: 'right', flexShrink: 0 }}>{rowLabel}</span>
+                            {Array.from({ length: maxCol }, (_, i) => {
+                              const col = i + 1;
+                              const entry = seatLookup[`${rowLabel}-${col}`];
+                              if (!entry) {
+                                return <div key={col} style={{ width: 14, height: 14, borderRadius: 3, background: '#1a2a1a', border: '1px solid #263326', flexShrink: 0 }} />;
+                              }
+                              const { sec, seat } = entry;
+                              const bg = seat.status === 'sold' ? '#ff4d4f' : sec.color || '#2CC275';
+                              return <div key={col} style={{ width: 14, height: 14, borderRadius: 3, background: bg, opacity: seat.status === 'sold' ? 0.5 : 1, flexShrink: 0 }} title={`${rowLabel}${col} — ${sec.name}`} />;
+                            })}
+                            <span style={{ width: 16, color: '#555', fontSize: 9, fontWeight: 800, flexShrink: 0 }}>{rowLabel}</span>
                           </div>
-                          <div style={{ color: '#555', fontSize: '11px' }}>
-                            Đã bán {sold}/{total} · Còn {available}
-                          </div>
-                        </div>
-
-                        {/* Price */}
-                        <div style={{ color: '#2CC275', fontWeight: '700', fontSize: '13px', whiteSpace: 'nowrap' }}>
-                          {fmt(zone.price)}
-                        </div>
+                        ))}
                       </div>
-                    );
-                  })}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Sections legend list for seat type */}
+              {data.type === 'seat' && data.sections?.length > 0 && (
+                <div style={{ marginBottom: '8px' }}>
+                  <h4 style={{ color: '#aaa', fontSize: '12px', textTransform: 'uppercase', margin: '0 0 12px', letterSpacing: '0.5px' }}>Danh sách khu vực</h4>
+                  <div style={{ display: 'grid', gap: '8px' }}>
+                    {data.sections.map((sec, idx) => {
+                      const allSeats = Object.values(sec.rows || {}).flat();
+                      const total = allSeats.length;
+                      const sold = allSeats.filter(s => s.status === 'sold').length;
+                      const available = total - sold;
+                      return (
+                        <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px', background: '#141414', borderRadius: '10px', border: '1px solid #1e1e1e' }}>
+                          <div style={{ width: '10px', height: '36px', borderRadius: '5px', background: sec.color || '#2CC275', flexShrink: 0 }} />
+                          <div style={{ flex: 1 }}>
+                            <div style={{ color: '#eee', fontSize: '14px', fontWeight: '600', marginBottom: '2px' }}>{sec.name}</div>
+                            <div style={{ color: '#555', fontSize: '11px' }}>Đã bán {sold}/{total} · Còn {available} ghế</div>
+                          </div>
+                          <div style={{ color: '#2CC275', fontWeight: '700', fontSize: '13px' }}>{fmt(sec.price)}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* ZONE/MIXED type: zone list */}
+              {data.type !== 'seat' && (
+                <div style={{ marginBottom: '8px' }}>
+                  <h4 style={{ color: '#aaa', fontSize: '12px', textTransform: 'uppercase', margin: '0 0 12px', letterSpacing: '0.5px' }}>
+                    Danh sách khu vực
+                  </h4>
+                  <div style={{ display: 'grid', gap: '8px' }}>
+                    {(data.zones || []).map((zone, idx) => {
+                      const isStanding = zone.zone_type === 'standing' || (!zone.zone_type && !zone.seat_total);
+                      const isSeated = zone.zone_type === 'seated';
+                      const isBA = zone.zone_type === 'best_available';
+
+                      let available, total;
+                      if (isSeated || isBA) {
+                        available = zone.seat_available ?? 0;
+                        total = zone.seat_total ?? zone.capacity ?? 0;
+                      } else {
+                        total = zone.capacity || 0;
+                        available = total - (zone.sold || 0);
+                      }
+                      const sold = total - available;
+
+                      return (
+                        <div key={zone.id || idx} style={{
+                          display: 'flex', alignItems: 'center', gap: '12px',
+                          padding: '12px 14px', background: '#141414', borderRadius: '10px',
+                          border: '1px solid #1e1e1e',
+                        }}>
+                          <div style={{
+                            width: '10px', height: '36px', borderRadius: '5px',
+                            background: zone.color || '#4A90D9', flexShrink: 0
+                          }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+                              <span style={{ color: '#eee', fontSize: '14px', fontWeight: '600' }}>{zone.name}</span>
+                              <span style={{
+                                fontSize: '10px', padding: '1px 6px', borderRadius: '4px', fontWeight: '600',
+                                background: isStanding ? '#FFC10715' : isBA ? '#9b59b615' : '#1890ff15',
+                                color: isStanding ? '#FFC107' : isBA ? '#9b59b6' : '#1890ff',
+                              }}>
+                                {isStanding && <><FaUsers style={{ fontSize: '8px', marginRight: '3px' }} />Đứng</>}
+                                {isSeated && <><FaChair style={{ fontSize: '8px', marginRight: '3px' }} />Ngồi</>}
+                                {isBA && <><FaMagic style={{ fontSize: '8px', marginRight: '3px' }} />Best Available</>}
+                              </span>
+                            </div>
+                            <div style={{ color: '#555', fontSize: '11px' }}>
+                              Đã bán {sold}/{total} · Còn {available}
+                            </div>
+                          </div>
+                          <div style={{ color: '#2CC275', fontWeight: '700', fontSize: '13px', whiteSpace: 'nowrap' }}>
+                            {fmt(zone.price)}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>

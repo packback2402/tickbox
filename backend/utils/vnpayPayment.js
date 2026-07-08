@@ -26,7 +26,7 @@ const vnpayInstance = new VNPay({
   tmnCode:       process.env.VNPAY_TMN_CODE   || 'DEMOV210',
   secureSecret:  process.env.VNPAY_SECRET_KEY || 'RAOEXHYVSDDIILLHHVXQOQLFLPMCLPHZ',
   vnpayHost:     'https://sandbox.vnpayment.vn',
-  testMode:      true,
+  testMode:      false,
   hashAlgorithm: 'SHA512',
   loggerFn:      ignoreLogger,
 });

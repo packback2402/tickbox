@@ -18,7 +18,10 @@ const RichEditor = ({ value, onChange, placeholder }) => {
   const [showImageInput, setShowImageInput] = useState(false);
   const [imageUrl, setImageUrl] = useState('');
   const isInitialized = useRef(false);
+  // Track active format states
+  const [activeFormats, setActiveFormats] = useState({});
 
+  // Init content only once
   useEffect(() => {
     if (editorRef.current && !isInitialized.current) {
       editorRef.current.innerHTML = value || '';
@@ -26,10 +29,43 @@ const RichEditor = ({ value, onChange, placeholder }) => {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Sync if value reset externally (e.g. editing new event)
+  useEffect(() => {
+    if (editorRef.current && (value === '' || value === null || value === undefined) && isInitialized.current) {
+      editorRef.current.innerHTML = '';
+    }
+  }, [value]);
+
+  // Poll active format states on selection/cursor change
+  const updateActiveFormats = useCallback(() => {
+    try {
+      const formats = {
+        bold: document.queryCommandState('bold'),
+        italic: document.queryCommandState('italic'),
+        underline: document.queryCommandState('underline'),
+        strikeThrough: document.queryCommandState('strikeThrough'),
+        insertUnorderedList: document.queryCommandState('insertUnorderedList'),
+        insertOrderedList: document.queryCommandState('insertOrderedList'),
+      };
+      // Check block type
+      const block = document.queryCommandValue('formatBlock').toLowerCase();
+      formats.blockH2 = block === 'h2';
+      formats.blockH3 = block === 'h3';
+      formats.blockQuote = block === 'blockquote';
+      setActiveFormats(formats);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    document.addEventListener('selectionchange', updateActiveFormats);
+    return () => document.removeEventListener('selectionchange', updateActiveFormats);
+  }, [updateActiveFormats]);
+
   const exec = (cmd, val = null) => {
     editorRef.current?.focus();
     document.execCommand(cmd, false, val);
     handleChange();
+    setTimeout(updateActiveFormats, 0);
   };
 
   const handleChange = () => {
@@ -43,101 +79,177 @@ const RichEditor = ({ value, onChange, placeholder }) => {
     setShowImageInput(false);
   };
 
-  const ToolBtn = ({ cmd, val, icon, title, active }) => (
-    <button
-      type="button"
-      title={title}
-      onMouseDown={e => { e.preventDefault(); exec(cmd, val); }}
-      style={{
-        background: active ? '#2CC27530' : 'transparent',
-        border: active ? '1px solid #2CC27560' : '1px solid transparent',
-        color: active ? '#2CC275' : '#aaa',
-        padding: '5px 8px', borderRadius: '6px', cursor: 'pointer',
-        fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        minWidth: '28px', height: '28px', transition: 'all 0.12s',
-      }}
-      onMouseEnter={e => { e.currentTarget.style.background = '#2a2a2a'; e.currentTarget.style.color = '#fff'; }}
-      onMouseLeave={e => { e.currentTarget.style.background = active ? '#2CC27530' : 'transparent'; e.currentTarget.style.color = active ? '#2CC275' : '#aaa'; }}
-    >{icon}</button>
-  );
+  // Toolbar button with active state highlight
+  const ToolBtn = ({ cmd, val, icon, title, isActive }) => {
+    const active = isActive ?? false;
+    return (
+      <button
+        type="button"
+        title={title}
+        onMouseDown={e => { e.preventDefault(); exec(cmd, val); }}
+        style={{
+          background: active ? '#2CC27530' : 'transparent',
+          border: active ? '1px solid #2CC27580' : '1px solid transparent',
+          color: active ? '#2CC275' : '#888',
+          padding: '5px 8px', borderRadius: '6px', cursor: 'pointer',
+          fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          minWidth: '30px', height: '30px',
+          transition: 'all 0.12s',
+          fontWeight: active ? '700' : '400',
+        }}
+        onMouseEnter={e => { if (!active) { e.currentTarget.style.background = '#2a2a2a'; e.currentTarget.style.color = '#fff'; } }}
+        onMouseLeave={e => {
+          e.currentTarget.style.background = active ? '#2CC27530' : 'transparent';
+          e.currentTarget.style.color = active ? '#2CC275' : '#888';
+        }}
+      >{icon}</button>
+    );
+  };
+
+  const Divider = () => <div style={{ width: '1px', height: '20px', background: '#333', margin: '0 2px', flexShrink: 0 }} />;
 
   return (
-    <div style={{ border: '1px solid #444', borderRadius: '10px', overflow: 'hidden', background: '#1e1e1e', transition: 'border-color 0.15s' }}
+    <div style={{ border: '1px solid #333', borderRadius: '10px', overflow: 'hidden', background: '#181818' }}
       onFocusCapture={e => e.currentTarget.style.borderColor = '#2CC275'}
-      onBlurCapture={e => e.currentTarget.style.borderColor = '#444'}
+      onBlurCapture={e => e.currentTarget.style.borderColor = '#333'}
     >
       {/* Toolbar */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px', padding: '8px 10px', borderBottom: '1px solid #2a2a2a', background: '#252525', alignItems: 'center' }}>
-        <ToolBtn cmd="bold" icon={<FaBold />} title="In đậm (Ctrl+B)" />
-        <ToolBtn cmd="italic" icon={<FaItalic />} title="In nghiêng (Ctrl+I)" />
-        <ToolBtn cmd="underline" icon={<FaUnderline />} title="Gạch chân (Ctrl+U)" />
-        <ToolBtn cmd="strikeThrough" icon={<FaStrikethrough />} title="Gạch ngang" />
-        <div style={{ width: '1px', height: '20px', background: '#3a3a3a', margin: '0 4px' }} />
-        <ToolBtn cmd="formatBlock" val="h2" icon={<span style={{fontSize:'11px',fontWeight:'800'}}>H2</span>} title="Tiêu đề lớn" />
-        <ToolBtn cmd="formatBlock" val="h3" icon={<span style={{fontSize:'11px',fontWeight:'800'}}>H3</span>} title="Tiêu đề nhỏ" />
-        <ToolBtn cmd="formatBlock" val="p" icon={<span style={{fontSize:'10px'}}>¶</span>} title="Đoạn văn" />
-        <div style={{ width: '1px', height: '20px', background: '#3a3a3a', margin: '0 4px' }} />
-        <ToolBtn cmd="insertUnorderedList" icon={<FaListUl />} title="Danh sách gạch đầu dòng" />
-        <ToolBtn cmd="insertOrderedList" icon={<FaListOl />} title="Danh sách số thứ tự" />
-        <ToolBtn cmd="formatBlock" val="blockquote" icon={<FaQuoteLeft />} title="Trích dẫn" />
-        <div style={{ width: '1px', height: '20px', background: '#3a3a3a', margin: '0 4px' }} />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px', padding: '8px 10px', borderBottom: '1px solid #252525', background: '#1e1e1e', alignItems: 'center' }}>
+        {/* Inline formats */}
+        <ToolBtn cmd="bold" icon={<FaBold />} title="In đậm (Ctrl+B)" isActive={activeFormats.bold} />
+        <ToolBtn cmd="italic" icon={<FaItalic />} title="In nghiêng (Ctrl+I)" isActive={activeFormats.italic} />
+        <ToolBtn cmd="underline" icon={<FaUnderline />} title="Gạch chân (Ctrl+U)" isActive={activeFormats.underline} />
+        <ToolBtn cmd="strikeThrough" icon={<FaStrikethrough />} title="Gạch ngang" isActive={activeFormats.strikeThrough} />
+        <Divider />
+        {/* Block formats */}
+        <ToolBtn cmd="formatBlock" val="h2" icon={<span style={{fontSize:'11px',fontWeight:'800',fontFamily:'monospace'}}>H2</span>} title="Tiêu đề lớn" isActive={activeFormats.blockH2} />
+        <ToolBtn cmd="formatBlock" val="h3" icon={<span style={{fontSize:'11px',fontWeight:'800',fontFamily:'monospace'}}>H3</span>} title="Tiêu đề nhỏ" isActive={activeFormats.blockH3} />
+        <ToolBtn cmd="formatBlock" val="p" icon={<span style={{fontSize:'12px',fontWeight:'600'}}>¶</span>} title="Đoạn văn bình thường" />
+        <Divider />
+        {/* Lists */}
+        <ToolBtn cmd="insertUnorderedList" icon={<FaListUl />} title="Danh sách gạch đầu dòng" isActive={activeFormats.insertUnorderedList} />
+        <ToolBtn cmd="insertOrderedList" icon={<FaListOl />} title="Danh sách số thứ tự" isActive={activeFormats.insertOrderedList} />
+        <ToolBtn cmd="formatBlock" val="blockquote" icon={<FaQuoteLeft />} title="Trích dẫn" isActive={activeFormats.blockQuote} />
+        <Divider />
+        {/* Image */}
         <button
           type="button" title="Chèn ảnh"
           onMouseDown={e => { e.preventDefault(); setShowImageInput(v => !v); }}
-          style={{ background: showImageInput ? '#1890ff20' : 'transparent', border: showImageInput ? '1px solid #1890ff60' : '1px solid transparent', color: showImageInput ? '#1890ff' : '#aaa', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', minWidth: '28px', height: '28px', display:'flex', alignItems:'center', justifyContent:'center' }}
+          style={{
+            background: showImageInput ? '#1890ff20' : 'transparent',
+            border: showImageInput ? '1px solid #1890ff60' : '1px solid transparent',
+            color: showImageInput ? '#1890ff' : '#888',
+            padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px',
+            minWidth: '30px', height: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
         ><FaImage /></button>
         <div style={{ flex: 1 }} />
-        <ToolBtn cmd="undo" icon={<FaUndo />} title="Hoàn tác" />
-        <ToolBtn cmd="redo" icon={<FaRedo />} title="Làm lại" />
+        {/* Undo/Redo */}
+        <ToolBtn cmd="undo" icon={<FaUndo />} title="Hoàn tác (Ctrl+Z)" />
+        <ToolBtn cmd="redo" icon={<FaRedo />} title="Làm lại (Ctrl+Y)" />
       </div>
 
-      {/* Image URL input */}
+      {/* Image URL input bar */}
       {showImageInput && (
-        <div style={{ display: 'flex', gap: '8px', padding: '8px 10px', background: '#1a1a1a', borderBottom: '1px solid #2a2a2a', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '8px', padding: '8px 12px', background: '#141414', borderBottom: '1px solid #252525', alignItems: 'center' }}>
           <FaGlobe size={12} style={{ color: '#1890ff', flexShrink: 0 }} />
           <input
-            type="url" placeholder="Nhập URL ảnh..."
+            type="url" placeholder="Dán URL ảnh vào đây..."
             value={imageUrl} onChange={e => setImageUrl(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && insertImage()}
-            style={{ flex: 1, background: '#252525', border: '1px solid #333', borderRadius: '6px', color: '#fff', padding: '5px 10px', fontSize: '13px', outline: 'none' }}
+            autoFocus
+            style={{ flex: 1, background: '#1e1e1e', border: '1px solid #333', borderRadius: '6px', color: '#fff', padding: '6px 10px', fontSize: '13px', outline: 'none' }}
           />
           <button type="button" onClick={insertImage}
-            style={{ background: '#1890ff', color: '#fff', border: 'none', borderRadius: '6px', padding: '5px 12px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', whiteSpace: 'nowrap' }}>
+            style={{ background: '#1890ff', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 14px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', whiteSpace: 'nowrap' }}>
             Chèn
           </button>
           <button type="button" onClick={() => setShowImageInput(false)}
-            style={{ background: 'transparent', color: '#555', border: 'none', cursor: 'pointer', fontSize: '14px' }}>
+            style={{ background: 'transparent', color: '#555', border: 'none', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>
             <FaTimes />
           </button>
         </div>
       )}
 
-      {/* Editable area */}
+      {/* Editable content area */}
       <div
         ref={editorRef}
         contentEditable
         suppressContentEditableWarning
         onInput={handleChange}
+        onKeyUp={updateActiveFormats}
+        onMouseUp={updateActiveFormats}
+        onKeyDown={e => {
+          if (e.key === 'Enter') {
+            setTimeout(() => {
+              const sel = window.getSelection();
+              if (sel && sel.rangeCount > 0) {
+                const range = sel.getRangeAt(0);
+                const tmp = document.createElement('span');
+                tmp.innerHTML = '\u200b';
+                range.insertNode(tmp);
+                tmp.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+                if (tmp.parentNode) tmp.parentNode.removeChild(tmp);
+              }
+            }, 10);
+          }
+        }}
         data-placeholder={placeholder || 'Mô tả chi tiết về sự kiện...'}
         style={{
-          minHeight: '180px', maxHeight: '320px', overflowY: 'auto',
-          padding: '14px 16px', outline: 'none', color: '#e0e0e0',
-          fontSize: '14px', lineHeight: '1.7', wordBreak: 'break-word',
+          minHeight: '200px', maxHeight: '380px', overflowY: 'auto',
+          padding: '14px 16px 14px 32px', outline: 'none', color: '#d4d4d4',
+          fontSize: '14px', lineHeight: '1.75', wordBreak: 'break-word',
+          borderRadius: '0 0 10px 10px',
         }}
       />
       <style>{`
-        [contenteditable]:empty:before { content: attr(data-placeholder); color: #555; pointer-events: none; }
-        [contenteditable] h2 { color: #fff; font-size: 1.3em; margin: 12px 0 6px; border-bottom: 1px solid #333; padding-bottom: 4px; }
-        [contenteditable] h3 { color: #ddd; font-size: 1.1em; margin: 10px 0 4px; }
-        [contenteditable] blockquote { border-left: 3px solid #2CC275; padding: 6px 14px; margin: 8px 0; color: #aaa; background: #2CC27510; border-radius: 0 6px 6px 0; }
-        [contenteditable] ul, [contenteditable] ol { padding-left: 20px; margin: 6px 0; }
-        [contenteditable] li { margin: 3px 0; }
-        [contenteditable] img { max-width: 100%; border-radius: 8px; }
-        [contenteditable] strong, [contenteditable] b { color: #fff; }
+        [contenteditable]:empty:before {
+          content: attr(data-placeholder);
+          color: #444;
+          pointer-events: none;
+          display: block;
+        }
+        [contenteditable] h2 {
+          color: #fff; font-size: 1.25em; font-weight: 700;
+          margin: 14px 0 6px; border-bottom: 1px solid #2a2a2a; padding-bottom: 5px;
+        }
+        [contenteditable] h3 {
+          color: #e0e0e0; font-size: 1.08em; font-weight: 600; margin: 10px 0 4px;
+        }
+        [contenteditable] blockquote {
+          border-left: 3px solid #2CC275; padding: 8px 16px;
+          margin: 10px 0; color: #999; background: #2CC27510;
+          border-radius: 0 8px 8px 0; font-style: italic;
+        }
+        [contenteditable] ul {
+          padding-left: 1.4em; margin: 6px 0;
+          list-style-type: disc; list-style-position: outside;
+        }
+        [contenteditable] ol {
+          padding-left: 1.6em; margin: 6px 0;
+          list-style-type: decimal; list-style-position: outside;
+        }
+        [contenteditable] li {
+          margin: 3px 0; color: #d4d4d4; display: list-item;
+        }
+        [contenteditable] img {
+          max-width: 100%; border-radius: 8px; display: block; margin: 10px 0;
+        }
+        [contenteditable] strong, [contenteditable] b {
+          color: #fff; font-weight: 700;
+        }
+        [contenteditable] em, [contenteditable] i {
+          color: #d0d0d0;
+        }
+        [contenteditable] a {
+          color: #2CC275; text-decoration: underline;
+        }
+        [contenteditable] p { margin: 6px 0; }
       `}</style>
     </div>
   );
 };
+
 
 // Action Dropdown (Gọn, có mục đích rõ ràng)
 const ActionDropdown = ({ event, onView, onApprove, onReject, onDelete }) => {
@@ -339,28 +451,37 @@ const EventDetailModal = ({ event, onClose, onEdit, onApprove, onReject, onDelet
                   {event.license_note || <span style={{ color: '#444', fontStyle: 'italic' }}>Không có ghi chú</span>}
                 </div>
                 {/* File minh chứng */}
-                {event.license_files && event.license_files.length > 0 ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <div style={{ fontSize: '11px', color: '#666', fontWeight: '600', marginBottom: '4px' }}>File đính kèm ({event.license_files.length}):</div>
-                    {event.license_files.map((url, i) => {
-                      const filename = url.split('/').pop();
-                      const isPdf = filename.toLowerCase().endsWith('.pdf');
-                      // URL /uploads/... là relative path — CRA proxy (dev) và nginx (production) đều xử lý đúng
-                      // Không dùng REACT_APP_API_URL vì nó là '/api', không phải base domain
-                      const fullUrl = url.startsWith('http') ? url : url;
-                      return (
-                        <a key={i} href={fullUrl} target="_blank" rel="noopener noreferrer"
-                          style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#111', borderRadius: '8px', padding: '10px 14px', border: '1px solid #2a2a2a', textDecoration: 'none', color: '#ccc', fontSize: '13px' }}>
-                          <span style={{ color: isPdf ? '#ff6b6b' : '#2CC275' }}>📄</span>
-                          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{filename}</span>
-                          <span style={{ color: '#444', fontSize: '11px' }}>Xem</span>
-                        </a>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div style={{ color: '#444', fontStyle: 'italic', fontSize: '13px' }}>Chưa có file minh chứng</div>
-                )}
+                {(() => {
+                  // Safe parse: license_files có thể là array hoặc JSON string
+                  let files = event.license_files;
+                  if (typeof files === 'string') {
+                    try { files = JSON.parse(files); } catch { files = []; }
+                  }
+                  if (!Array.isArray(files)) files = [];
+                  return files.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <div style={{ fontSize: '11px', color: '#666', fontWeight: '600', marginBottom: '4px' }}>File đính kèm ({files.length}):</div>
+                      {files.map((url, i) => {
+                        const filename = url.split('/').pop();
+                        const isPdf = filename.toLowerCase().endsWith('.pdf');
+                        const backendBase = process.env.NODE_ENV === 'production'
+                          ? (process.env.REACT_APP_API_URL ?? window.location.origin)
+                          : (process.env.REACT_APP_API_URL || 'http://localhost:5001');
+                        const fullUrl = url.startsWith('http') ? url : `${backendBase}${url}`;
+                        return (
+                          <a key={i} href={fullUrl} target="_blank" rel="noopener noreferrer"
+                            style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#111', borderRadius: '8px', padding: '10px 14px', border: '1px solid #2a2a2a', textDecoration: 'none', color: '#ccc', fontSize: '13px' }}>
+                            <span style={{ color: isPdf ? '#ff6b6b' : '#2CC275' }}>📄</span>
+                            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{filename}</span>
+                            <span style={{ color: '#444', fontSize: '11px' }}>Xem ↗</span>
+                          </a>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div style={{ color: '#444', fontStyle: 'italic', fontSize: '13px' }}>Chưa có file minh chứng</div>
+                  );
+                })()}
               </div>
 
               {/* Thông tin thanh toán */}
@@ -424,48 +545,33 @@ const EventDetailModal = ({ event, onClose, onEdit, onApprove, onReject, onDelet
 
 // Step Indicator
 const STEPS = [
-  { id: 1, label: 'Thông tin cơ bản', icon: <FaFileAlt /> },
-  { id: 2, label: 'Hạng vé', icon: <FaTicketAlt /> },
-  { id: 3, label: 'Sơ đồ chỗ ngồi', icon: <FaMapMarked /> },
-  { id: 4, label: 'Cài đặt', icon: <FaShieldAlt /> },
+  { id: 1, label: 'Thông tin', icon: <FaFileAlt size={12} /> },
+  { id: 2, label: 'Hạng vé', icon: <FaTicketAlt size={12} /> },
+  { id: 3, label: 'Sơ đồ chỗ ngồi', icon: <FaMapMarked size={12} /> },
+  { id: 4, label: 'Cài đặt', icon: <FaShieldAlt size={12} /> },
 ];
 
-const StepIndicator = ({ current }) => (
-  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '36px', position: 'relative' }}>
-    {/* connector line */}
-    <div style={{
-      position: 'absolute', top: '20px', left: '20px', right: '20px', height: '2px',
-      background: 'linear-gradient(to right, #2CC275, #1890ff)',
-      opacity: 0.2, zIndex: 0,
-    }} />
-    {STEPS.map((step, i) => {
+const StepIndicator = ({ current, onStepClick }) => (
+  <div style={{ display: 'flex', gap: '0', marginBottom: '28px', background: '#1a1a1a', borderRadius: '12px', padding: '6px', border: '1px solid #2a2a2a' }}>
+    {STEPS.map((step) => {
       const done = current > step.id;
       const active = current === step.id;
       return (
-        <div key={step.id} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', position: 'relative', zIndex: 1 }}>
-          <div style={{
-            width: '40px', height: '40px', borderRadius: '50%',
-            background: done ? '#2CC275' : active ? 'linear-gradient(135deg, #2CC275, #1da562)' : '#252525',
-            border: active ? '2px solid #2CC275' : done ? '2px solid #2CC275' : '2px solid #3a3a3a',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: done || active ? '#fff' : '#555',
-            fontSize: done ? '14px' : '13px',
-            fontWeight: '700',
-            boxShadow: active ? '0 0 0 4px rgba(44,194,117,0.2)' : 'none',
-            transition: 'all 0.3s',
-          }}>
-            {done ? <FaCheck size={14} /> : step.icon}
-          </div>
-          <span style={{
-            fontSize: '11px', fontWeight: '600', textAlign: 'center',
-            color: active ? '#2CC275' : done ? '#66d4a1' : '#555',
-            transition: 'color 0.3s',
-          }}>{step.label}</span>
-        </div>
+        <button key={step.id} onClick={() => onStepClick && onStepClick(step.id)} style={{
+          flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+          padding: '10px 8px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+          background: active ? '#2CC275' : 'transparent',
+          color: active ? '#000' : done ? '#2CC275' : '#555',
+          fontWeight: active ? '700' : '500', fontSize: '13px', transition: 'all 0.2s',
+        }}>
+          {done ? <FaCheck size={11} /> : step.icon} {step.label}
+        </button>
       );
     })}
   </div>
 );
+
+
 
 // Main Component
 const AdminPage = () => {
@@ -483,15 +589,18 @@ const AdminPage = () => {
   });
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
-  const [ticketRows, setTicketRows] = useState([{ type: 'Vé Thường', price: '', quantity_available: 100 }]);
+  const [ticketRows, setTicketRows] = useState([{ type: 'Vé Thường', price: '', quantity_available: 100, max_per_order: 10 }]);
+  const [deletedTicketIds, setDeletedTicketIds] = useState([]);
 
   // Wizard step state
   const [wizardStep, setWizardStep] = useState(1);
-  const [licenseFiles, setLicenseFiles] = useState([]);
+  const [licenseFiles, setLicenseFiles] = useState([]); // new File objects to upload
+  const [existingLicenseUrls, setExistingLicenseUrls] = useState([]); // already-saved URLs
   const [licenseNote, setLicenseNote] = useState('');
   const [hasSeatMap, setHasSeatMap] = useState(false);
   const [seatmapConfig, setSeatmapConfig] = useState({ rows: 10, cols: 15, sections: [] });
   const [showSeatmapBuilder, setShowSeatmapBuilder] = useState(false); // fullscreen builder
+  const [seatmapBuilderIsEditing, setSeatmapBuilderIsEditing] = useState(false); // true when editing existing seatmap
   const [showSeatmapViewer, setShowSeatmapViewer] = useState(false);   // viewer modal
   const [tempCreatedEventId, setTempCreatedEventId] = useState(null); // draft event for new flow
   const [seatmapDone, setSeatmapDone] = useState(false); // track if seatmap was saved
@@ -792,6 +901,16 @@ const AdminPage = () => {
     if (field === 'price') {
       const rawValue = value.replace(/\./g, '');
       if (!isNaN(rawValue)) newTickets[index][field] = formatCurrency(rawValue);
+    } else if (field === 'max_per_order') {
+      const qty = parseInt(newTickets[index].quantity_available) || 1;
+      const maxVal = Math.min(parseInt(value) || 1, qty);
+      newTickets[index][field] = maxVal;
+    } else if (field === 'quantity_available') {
+      newTickets[index][field] = value;
+      // Auto-adjust max_per_order if it exceeds new quantity
+      const newQty = parseInt(value) || 1;
+      const currentMax = parseInt(newTickets[index].max_per_order) || 10;
+      if (currentMax > newQty) newTickets[index].max_per_order = newQty;
     } else {
       newTickets[index][field] = value;
     }
@@ -809,6 +928,7 @@ const AdminPage = () => {
     setTicketRows([{ type: 'Vé Thường', price: '', quantity_available: 100 }]);
     setIsAddingCategory(false);
     setLicenseFiles([]);
+    setExistingLicenseUrls([]);
     setLicenseNote('');
     setHasSeatMap(false);
     setSeatmapConfig({ rows: 10, cols: 15, sections: [] });
@@ -835,6 +955,7 @@ const AdminPage = () => {
     setIsAddingCategory(false);
     setWizardStep(1);
     setLicenseFiles([]);
+    setExistingLicenseUrls([]);
     setLicenseNote('');
 
     // Load tickets for this event
@@ -845,8 +966,10 @@ const AdminPage = () => {
         type: t.type,
         price: formatCurrency(Math.round(parseFloat(t.price) || 0)),
         quantity_available: t.quantity_available,
+        max_per_order: t.max_per_order || 10,
       }));
-      setTicketRows(loaded.length > 0 ? loaded : [{ type: 'Vé Thường', price: '', quantity_available: 100 }]);
+      setTicketRows(loaded.length > 0 ? loaded : [{ type: 'Vé Thường', price: '', quantity_available: 100, max_per_order: 10 }]);
+      setDeletedTicketIds([]);
 
       // Fetch full event data (includes Step 4 payment/invoice fields)
       const evRes = await api.get(`/api/events/${event.id}`);
@@ -866,6 +989,11 @@ const AdminPage = () => {
         address: ev.invoice_address || '',
       });
       setLicenseNote(ev.license_note || '');
+      // Load existing license file URLs
+      const existingFiles = ev.license_files
+        ? (typeof ev.license_files === 'string' ? JSON.parse(ev.license_files) : ev.license_files)
+        : [];
+      setExistingLicenseUrls(Array.isArray(existingFiles) ? existingFiles : []);
     } catch { setTicketRows([{ type: 'Vé Thường', price: '', quantity_available: 100 }]); }
 
     // Load seatmap config
@@ -915,6 +1043,22 @@ const AdminPage = () => {
       if (isAddingCategory) { alert('Lưu thể loại mới trước!'); return; }
       if (!eventData.category_id) { alert('Chọn thể loại!'); return; }
 
+
+      // Step 4 - license: upload new files first, then merge with existing URLs
+      let finalLicenseUrls = [...existingLicenseUrls];
+      if (licenseFiles.length > 0) {
+        const formData = new FormData();
+        licenseFiles.forEach(f => formData.append('files', f));
+        try {
+          const uploadRes = await api.post('/api/upload/license', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+          });
+          finalLicenseUrls = [...finalLicenseUrls, ...uploadRes.data.urls];
+        } catch (uploadErr) {
+          console.error('License upload error:', uploadErr);
+        }
+      }
+
       const payload = {
         ...eventData,
         category_id: parseInt(eventData.category_id),
@@ -930,29 +1074,36 @@ const AdminPage = () => {
         invoice_company_name: invoiceInfo.companyName || null,
         invoice_tax_code: invoiceInfo.taxCode || null,
         invoice_address: invoiceInfo.address || null,
-        // Step 4 - license note
+        // Step 4 - license
         license_note: licenseNote || null,
+        license_files: finalLicenseUrls.length > 0 ? JSON.stringify(finalLicenseUrls) : null,
       };
+
 
       if (editingId) {
         // Update basic event info
         await api.put(`/api/events/${editingId}`, payload);
 
-        // Update tickets: delete all old tickets and re-create
-        try {
-          const existingTickets = await api.get(`/api/tickets/${editingId}`);
-          for (const t of existingTickets.data) {
-            await api.delete(`/api/tickets/${t.id}`).catch(() => {});
-          }
-        } catch { /* ignore */ }
+        // Delete tickets removed by user
+        for (const tid of deletedTicketIds) {
+          await api.delete(`/api/tickets/${tid}`).catch(() => {});
+        }
+        // Update tickets: PUT existing, POST new
         for (const ticket of ticketRows) {
           if (!ticket.type) continue;
-          await api.post('/api/tickets', {
-            event_id: editingId,
+          const ticketPayload = {
             type: ticket.type,
             price: parseCurrency(ticket.price),
             quantity_available: parseInt(ticket.quantity_available) || 0,
-          });
+            max_per_order: parseInt(ticket.max_per_order) || 10,
+          };
+          if (ticket.id) {
+            // Existing ticket — update in-place
+            await api.put(`/api/tickets/${ticket.id}`, ticketPayload).catch(() => {});
+          } else {
+            // New ticket row added by user — create
+            await api.post('/api/tickets', { event_id: editingId, ...ticketPayload });
+          }
         }
 
         // Generate seatmap if configured
@@ -967,13 +1118,30 @@ const AdminPage = () => {
 
         alert("Cập nhật sự kiện thành công!");
       } else {
-        const eventRes = await api.post('/api/events', payload);
-        const newEventId = eventRes.data.id;
+        let newEventId;
+        if (tempCreatedEventId) {
+          // Đã có draft event từ seatmap builder → UPDATE thay vì tạo mới
+          await api.put(`/api/events/${tempCreatedEventId}`, payload);
+          newEventId = tempCreatedEventId;
+        } else {
+          // Chưa có event nào → tạo mới
+          const eventRes = await api.post('/api/events', payload);
+          newEventId = eventRes.data.id;
+        }
+        // Tạo vé (xoá cũ nếu draft đã có vé tạm)
+        try {
+          const existingTickets = await api.get(`/api/tickets/${newEventId}`);
+          for (const t of existingTickets.data) {
+            await api.delete(`/api/tickets/${t.id}`).catch(() => {});
+          }
+        } catch { /* ignore */ }
         for (const ticket of ticketRows) {
+          if (!ticket.type) continue;
           await api.post('/api/tickets', {
             event_id: newEventId, type: ticket.type,
             price: parseCurrency(ticket.price),
-            quantity_available: parseInt(ticket.quantity_available)
+            quantity_available: parseInt(ticket.quantity_available) || 0,
+            max_per_order: parseInt(ticket.max_per_order) || 10,
           });
         }
         // Generate seatmap if configured
@@ -1046,10 +1214,10 @@ const AdminPage = () => {
 
   const StatusBadge = ({ status }) => {
     const map = {
-      published: { bg: '#2CC27520', color: '#2CC275', text: 'Published' },
-      pending: { bg: '#FFC10720', color: '#FFC107', text: 'Pending' },
-      rejected: { bg: '#ff4d4f20', color: '#ff4d4f', text: 'Rejected' },
-      approved: { bg: '#2CC27520', color: '#2CC275', text: 'Approved' },
+      published: { bg: '#2CC27520', color: '#2CC275', text: 'Đã duyệt' },
+      pending: { bg: '#FFC10720', color: '#FFC107', text: 'Chờ duyệt' },
+      rejected: { bg: '#ff4d4f20', color: '#ff4d4f', text: 'Từ chối' },
+      approved: { bg: '#2CC27520', color: '#2CC275', text: 'Đã duyệt' },
     };
     const s = map[status] || map.pending;
     return <span style={{ background: s.bg, color: s.color, padding: '3px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: '600', border: `1px solid ${s.color}30` }}>{s.text}</span>;
@@ -1221,15 +1389,9 @@ const AdminPage = () => {
             },{
               label:'Phí Nền Tảng (3.5%)', value: fmtK(stats?.platform_fee)+'đ',
               sub: fmt(stats?.platform_fee), color:'#2CC275', pct: t?.fee_pct
-            },{
+            },{ 
               label:'Thanh Toán Đối Soát', value: fmtK(stats?.net_revenue)+'đ',
               sub: fmt(stats?.net_revenue), color:'#ff4d4f', pct: t?.gmv_pct != null ? -(t?.gmv_pct||0) : undefined
-            },{
-              label:'Vé Đã Bán', value: (stats?.total_tickets_sold||0).toLocaleString(),
-              sub:'vé', color:'#FFC107', pct: t?.tickets_pct
-            },{
-              label:'Người Mua Unique (30N)', value: (platformSummary?.current?.unique_buyers||0).toLocaleString(),
-              sub:'khách hàng', color:'#722ed1', pct: t?.buyers_pct
             }].map((c,i) => (
               <div key={i} style={{background:'#1e1e1e',border:'1px solid #2a2a2a',borderRadius:14,
                 padding:'18px 20px',borderLeft:`4px solid ${c.color}`}}>
@@ -1273,13 +1435,13 @@ const AdminPage = () => {
                 <tbody>
                   {revenueEventsData.length > 0 ? revenueEventsData.map((ev,idx) => (
                     <tr key={ev.event_id}
-                      style={{borderBottom:'1px solid #161616',cursor:'pointer',transition:'background .15s'}}
+                      style={{borderBottom:'1px solid #161616',cursor:'pointer',transition:'background .15s', opacity: parseFloat(ev.total_gmv) === 0 ? 0.45 : 1}}
                       onMouseEnter={e=>e.currentTarget.style.background='#1a1a1a'}
                       onMouseLeave={e=>e.currentTarget.style.background=''}
                       onClick={()=>{setDrillEvent(ev);fetchDrillOrders(ev.event_id);}}
                     >
                       <td style={{padding:'13px 16px',color:'#444',fontSize:12,fontWeight:700}}>#{idx+1}</td>
-                      <td style={{padding:'13px 16px',color:'#1890ff',fontWeight:700,maxWidth:260,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ev.event_title}</td>
+                      <td style={{padding:'13px 16px',color: parseFloat(ev.total_gmv) === 0 ? '#555' : '#1890ff',fontWeight:700,maxWidth:260,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ev.event_title}</td>
                       <td style={{padding:'13px 16px',textAlign:'right',color:'#2CC275',fontWeight:700}}>{ev.total_tickets_sold}</td>
                       <td style={{padding:'13px 16px',textAlign:'right',color:'#fff',fontWeight:600}}>{fmt(ev.total_gmv)}</td>
                       <td style={{padding:'13px 16px',textAlign:'right',color:'#2CC275'}}>{fmt(ev.platform_fee)}</td>
@@ -1707,9 +1869,9 @@ const AdminPage = () => {
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
               {[
                 { key: 'all', label: 'Tất cả', color: '#888' },
-                { key: 'published', label: 'Published', color: '#2CC275' },
-                { key: 'pending', label: 'Pending', color: '#FFC107' },
-                { key: 'rejected', label: 'Rejected', color: '#ff4d4f' },
+                { key: 'published', label: 'Đã duyệt', color: '#2CC275' },
+                { key: 'pending', label: 'Chờ duyệt', color: '#FFC107' },
+                { key: 'rejected', label: 'Từ chối', color: '#ff4d4f' },
               ].map(f => (
                 <button key={f.key} onClick={() => setStatusFilter(f.key)} style={{
                   padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer',
@@ -1724,14 +1886,6 @@ const AdminPage = () => {
               ))}
             </div>
 
-            {/* Export */}
-            <button onClick={() => exportToCSV(filteredEvents, 'SuKien')} style={{
-              background: '#1e1e1e', border: '1px solid #333', color: '#888',
-              padding: '10px 16px', borderRadius: '10px', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '600',
-            }}>
-              <FaDownload size={12} /> Xuất CSV
-            </button>
           </div>
 
           {/* Events Table */}
@@ -1831,7 +1985,7 @@ const AdminPage = () => {
           </div>
 
           {/* Step Indicator — dùng cả khi edit */}
-          <StepIndicator current={wizardStep} />
+          <StepIndicator current={wizardStep} onStepClick={setWizardStep} />
 
           {/* Draft indicator — chỉ khi tạo mới */}
           {!editingId && (draftSavedAt || draftSaving) && (
@@ -1951,6 +2105,9 @@ const AdminPage = () => {
                     label="Ảnh bìa sự kiện"
                     aspectRatio={16 / 9}
                     required
+                    maxSizeMB={5}
+                    minWidth={1200}
+                    minHeight={630}
                   />
 
                   <div>
@@ -2000,15 +2157,15 @@ const AdminPage = () => {
               {/* Ticket rows */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
                 {/* Header row */}
-                <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr 2fr auto', gap: '12px', padding: '0 16px' }}>
-                  {['Tên hạng vé', 'Giá (VNĐ)', 'Số lượng', ''].map(h => (
+                <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr 2fr 1fr auto', gap: '12px', padding: '0 16px' }}>
+                  {['Tên hạng vé', 'Giá (VNĐ)', 'Số lượng', 'Tối đa/đơn', ''].map(h => (
                     <span key={h} style={{ fontSize: '11px', color: '#555', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{h}</span>
                   ))}
                 </div>
 
                 {ticketRows.map((ticket, i) => (
                   <div key={i} style={{
-                    display: 'grid', gridTemplateColumns: '3fr 2fr 2fr auto',
+                    display: 'grid', gridTemplateColumns: '3fr 2fr 2fr 1fr auto',
                     gap: '12px', alignItems: 'center',
                     background: '#252525', padding: '16px', borderRadius: '12px',
                     border: '1px solid #333',
@@ -2037,8 +2194,22 @@ const AdminPage = () => {
                       onFocus={e => e.target.style.borderColor = '#2CC275'}
                       onBlur={e => e.target.style.borderColor = '#444'}
                     />
+                    <input
+                      type="number"
+                      style={{ ...inputStyle, color: '#1890ff', textAlign: 'center' }}
+                      title="Số lượng vé tối đa mỗi đơn hàng (không được vượt quá số lượng vé)"
+                      value={ticket.max_per_order ?? 10}
+                      onChange={e => handleTicketChange(i, 'max_per_order', parseInt(e.target.value) || 1)}
+                      min={1} max={parseInt(ticket.quantity_available) || 999}
+                      onFocus={e => e.target.style.borderColor = '#1890ff'}
+                      onBlur={e => e.target.style.borderColor = '#444'}
+                    />
                     {ticketRows.length > 1 ? (
-                      <button type="button" onClick={() => setTicketRows(ticketRows.filter((_, idx) => idx !== i))}
+                      <button type="button" onClick={() => {
+                        const removed = ticketRows[i];
+                        if (removed.id) setDeletedTicketIds(prev => [...prev, removed.id]);
+                        setTicketRows(ticketRows.filter((_, idx) => idx !== i));
+                      }}
                         style={{ background: '#ff4d4f20', border: '1px solid #ff4d4f50', color: '#ff4d4f', width: '36px', height: '36px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <FaTrash size={12} />
                       </button>
@@ -2048,7 +2219,7 @@ const AdminPage = () => {
               </div>
 
               <button type="button"
-                onClick={() => setTicketRows([...ticketRows, { type: '', price: '', quantity_available: 100 }])}
+                onClick={() => setTicketRows([...ticketRows, { type: '', price: '', quantity_available: 100, max_per_order: 10 }])}
                 style={{ background: 'transparent', color: '#2CC275', border: '1px dashed #2CC275', padding: '10px 20px', borderRadius: '10px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <FaPlus /> Thêm hạng vé
               </button>
@@ -2077,7 +2248,7 @@ const AdminPage = () => {
           {wizardStep === 3 && (
             <div style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '16px', padding: '32px', marginBottom: '20px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px', paddingBottom: '20px', borderBottom: '1px solid #2a2a2a' }}>
-                <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'linear-gradient(135deg, #722ed1, #531dab)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'linear-gradient(135deg, #2CC275, #1da562)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <FaMapMarked size={14} color="#fff" />
                 </div>
                 <div>
@@ -2147,8 +2318,8 @@ const AdminPage = () => {
                     </div>
                   ) : (
                     <div>
-                      <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: '#722ed115', border: '2px dashed #722ed140', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
-                        <FaMapMarked size={26} color="#722ed1" />
+                      <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: '#2CC27515', border: '2px dashed #2CC27540', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
+                        <FaMapMarked size={26} color="#2CC275" />
                       </div>
                       <div style={{ color: '#555', fontSize: '13px', marginBottom: '8px', lineHeight: '1.6' }}>
                       </div>
@@ -2193,10 +2364,10 @@ const AdminPage = () => {
                           setShowSeatmapBuilder(true);
                         }}
                         style={{
-                          background: 'linear-gradient(135deg, #722ed1, #531dab)', color: '#fff',
+                          background: 'linear-gradient(135deg, #2CC275, #1da562)', color: '#000',
                           border: 'none', padding: '14px 32px', borderRadius: '12px', cursor: 'pointer',
                           fontWeight: '700', fontSize: '15px', display: 'inline-flex', alignItems: 'center', gap: '10px',
-                          boxShadow: '0 4px 20px rgba(114,46,209,0.4)', transition: 'all 0.2s',
+                          boxShadow: '0 4px 20px rgba(44,194,117,0.4)', transition: 'all 0.2s',
                         }}
                         onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
                         onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
@@ -2232,6 +2403,7 @@ const AdminPage = () => {
               onEdit={() => {
                 setShowSeatmapViewer(false);
                 setShowSeatmapBuilder(true);
+                setSeatmapBuilderIsEditing(true);
               }}
               onDelete={async () => {
                 if (!window.confirm('Bạn chắc chắn muốn xóa toàn bộ sơ đồ? (Không thể hoàn tác)')) return;
@@ -2251,9 +2423,11 @@ const AdminPage = () => {
           {showSeatmapBuilder && (editingId || tempCreatedEventId) && (
             <SeatmapBuilderModal
               event={{ id: editingId || tempCreatedEventId, title: eventData.title }}
-              onClose={() => setShowSeatmapBuilder(false)}
+              onClose={() => { setShowSeatmapBuilder(false); setSeatmapBuilderIsEditing(false); }}
+              isEditing={seatmapBuilderIsEditing}
               onSuccess={() => {
                 setShowSeatmapBuilder(false);
+                setSeatmapBuilderIsEditing(false);
                 setSeatmapDone(true);
                 setHasSeatMap(true);
               }}
@@ -2290,10 +2464,36 @@ const AdminPage = () => {
                   <div style={{ color: '#444', fontSize: '12px', marginTop: '4px' }}>PDF, JPG, PNG — Giấy phép tổ chức, hợp đồng địa điểm, PCCC...</div>
                 </div>
 
+
+                {/* Existing saved files */}
+                {existingLicenseUrls.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+                    <div style={{ fontSize: '11px', color: '#2CC275', fontWeight: '700', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>✓ File đã lưu ({existingLicenseUrls.length})</div>
+                    {existingLicenseUrls.map((url, i) => {
+                      const filename = url.split('/').pop();
+                      const isImage = /\.(jpg|jpeg|png)$/i.test(filename);
+                      return (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '12px', background: '#1a2a1a', padding: '10px 16px', borderRadius: '10px', border: '1px solid #2CC27540' }}>
+                          <FaFileAlt style={{ color: '#2CC275', fontSize: '15px', flexShrink: 0 }} />
+                          <a href={url.startsWith('http') ? url : `${process.env.REACT_APP_API_URL || 'http://localhost:5001'}${url}`} target="_blank" rel="noreferrer"
+                            style={{ flex: 1, color: '#2CC275', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: 'none' }}>
+                            {filename}
+                          </a>
+                          <span style={{ background: '#2CC27520', color: '#2CC275', fontSize: '10px', fontWeight: '700', padding: '2px 8px', borderRadius: '4px', flexShrink: 0 }}>Đã lưu</span>
+                          <button onClick={() => setExistingLicenseUrls(existingLicenseUrls.filter((_, idx) => idx !== i))}
+                            style={{ background: 'none', border: 'none', color: '#ff4d4f', cursor: 'pointer', fontSize: '14px', padding: '4px' }}><FaTimes /></button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* New files pending upload */}
                 {licenseFiles.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
+                    <div style={{ fontSize: '11px', color: '#1890ff', fontWeight: '700', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>+ Sắp tải lên ({licenseFiles.length})</div>
                     {licenseFiles.map((file, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '12px', background: '#252525', padding: '10px 16px', borderRadius: '10px', border: '1px solid #2a2a2a' }}>
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '12px', background: '#252535', padding: '10px 16px', borderRadius: '10px', border: '1px solid #1890ff40' }}>
                         <FaFileAlt style={{ color: '#1890ff', fontSize: '15px', flexShrink: 0 }} />
                         <span style={{ flex: 1, color: '#ccc', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
                         <span style={{ color: '#555', fontSize: '11px', flexShrink: 0 }}>{(file.size / 1024).toFixed(0)} KB</span>
@@ -2303,6 +2503,7 @@ const AdminPage = () => {
                     ))}
                   </div>
                 )}
+
 
                 <div>
                   <label style={labelStyle}>Ghi chú thêm (tùy chọn)</label>

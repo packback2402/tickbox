@@ -1,19 +1,14 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 
 /**
- * SeatGridViewer — Pure HTML/CSS seat map (no Konva)
+ * KonvaSeatViewer — Unified seat grid with correct stage position layout
  *
- * Lý do bỏ Konva: Konva's internal click-detection bị reset bởi React reconciler
- * mỗi khi setPosition() được gọi trong onMouseMove → Circle.onClick không fire.
- *
- * Giải pháp: DOM <button> elements (click luôn tin cậy) + CSS transform cho pan/zoom.
- * Pan/zoom dùng imperative DOM update (không qua React state) để tránh re-render
- * trong lúc drag → button click không bị ảnh hưởng.
+ * Stage is rendered OUTSIDE the pan/zoom area so it always stays visible.
+ * Layout is a flex container: [stage?] + [viewport] arranged by stagePosition.
  */
 
-const SEAT_SIZE = 28;       // px (width & height của mỗi ô ghế)
-const SEAT_GAP = 8;         // px gap giữa các ghế
-const AISLE_WIDTH = 24;     // px lối đi giữa
+const SEAT_SIZE = 32;
+const SEAT_GAP  = 6;
 
 const zoomBtnStyle = {
   width: 30, height: 30, borderRadius: '50%',
@@ -32,71 +27,53 @@ const KonvaSeatViewer = ({
   getSectionColor,
   containerWidth = 800,
 }) => {
-  // Chỉ dùng React state để hiển thị % zoom trên nút — không dùng cho pan/zoom thật
+  // Stage is always shown at the top
+  const stagePosition = 'top';
   const [displayScale, setDisplayScale] = useState(1);
-
-  const viewRef  = useRef(null);  // viewport div (overflow: hidden)
-  const innerRef = useRef(null);  // nội dung pan/zoom
+  const viewRef  = useRef(null);
+  const innerRef = useRef(null);
   const scaleRef = useRef(1);
   const posRef   = useRef({ x: 0, y: 0 });
   const dragRef  = useRef(null);
 
-  // ─── Imperative transform (không trigger React re-render) ─────────────────
   const applyTransform = useCallback((s, pos) => {
-    scaleRef.current = s;
-    posRef.current = pos;
-    if (innerRef.current) {
-      innerRef.current.style.transform =
-        `translate(${pos.x}px, ${pos.y}px) scale(${s})`;
-    }
+    scaleRef.current = s; posRef.current = pos;
+    if (innerRef.current)
+      innerRef.current.style.transform = `translate(${pos.x}px, ${pos.y}px) scale(${s})`;
   }, []);
 
-  // ─── Wheel zoom tại vị trí chuột ──────────────────────────────────────────
+  const zoomIn    = () => { const ns = Math.min(5, scaleRef.current * 1.2); applyTransform(ns, posRef.current); setDisplayScale(ns); };
+  const zoomOut   = () => { const ns = Math.max(0.3, scaleRef.current / 1.2); applyTransform(ns, posRef.current); setDisplayScale(ns); };
+  const resetZoom = () => { applyTransform(1, { x: 0, y: 0 }); setDisplayScale(1); };
+
   const handleWheel = useCallback((e) => {
     e.preventDefault();
     const rect = viewRef.current.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-    const oldS = scaleRef.current;
-    const oldP = posRef.current;
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    const oldS = scaleRef.current, oldP = posRef.current;
     const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
     const newS = Math.min(5, Math.max(0.3, oldS * factor));
-    const newP = {
-      x: mx - (mx - oldP.x) * (newS / oldS),
-      y: my - (my - oldP.y) * (newS / oldS),
-    };
-    applyTransform(newS, newP);
-    setDisplayScale(newS); // chỉ cập nhật nút hiển thị %
+    const newP = { x: mx - (mx - oldP.x) * (newS / oldS), y: my - (my - oldP.y) * (newS / oldS) };
+    applyTransform(newS, newP); setDisplayScale(newS);
   }, [applyTransform]);
 
-  // Gắn wheel listener non-passive để preventDefault hoạt động
   useEffect(() => {
-    const el = viewRef.current;
-    if (!el) return;
+    const el = viewRef.current; if (!el) return;
     el.addEventListener('wheel', handleWheel, { passive: false });
     return () => el.removeEventListener('wheel', handleWheel);
   }, [handleWheel]);
 
-  // ─── Pan (drag) ────────────────────────────────────────────────────────────
   const handleMouseDown = useCallback((e) => {
     if (e.button !== 0) return;
-    // Nếu click vào ô ghế (button[data-seat]), không bắt đầu pan
     if (e.target.closest && e.target.closest('[data-seat]')) return;
-    dragRef.current = {
-      sx: e.clientX, sy: e.clientY,
-      ox: posRef.current.x, oy: posRef.current.y,
-      moved: false,
-    };
-    e.currentTarget.style.cursor = 'grabbing';
-    e.preventDefault();
+    dragRef.current = { sx: e.clientX, sy: e.clientY, ox: posRef.current.x, oy: posRef.current.y, moved: false };
+    e.currentTarget.style.cursor = 'grabbing'; e.preventDefault();
   }, []);
 
   const handleMouseMove = useCallback((e) => {
-    const d = dragRef.current;
-    if (!d) return;
-    const dx = e.clientX - d.sx;
-    const dy = e.clientY - d.sy;
-    if (!d.moved && Math.hypot(dx, dy) < 6) return; // dead zone
+    const d = dragRef.current; if (!d) return;
+    const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
+    if (!d.moved && Math.hypot(dx, dy) < 6) return;
     d.moved = true;
     applyTransform(scaleRef.current, { x: d.ox + dx, y: d.oy + dy });
   }, [applyTransform]);
@@ -106,225 +83,211 @@ const KonvaSeatViewer = ({
     if (e.currentTarget) e.currentTarget.style.cursor = 'grab';
   }, []);
 
-  // ─── Zoom buttons ──────────────────────────────────────────────────────────
-  const zoomIn = () => {
-    const newS = Math.min(5, scaleRef.current * 1.25);
-    applyTransform(newS, posRef.current);
-    setDisplayScale(newS);
-  };
-  const zoomOut = () => {
-    const newS = Math.max(0.3, scaleRef.current / 1.25);
-    applyTransform(newS, posRef.current);
-    setDisplayScale(newS);
-  };
-  const resetZoom = () => {
-    applyTransform(1, { x: 0, y: 0 });
-    setDisplayScale(1);
+  // ── Build unified seat lookup ─────────────────────────────────────────────
+  const seatLookup = {};
+  let maxCol = 0;
+  const allRows = new Set();
+
+  (sections || []).forEach(section => {
+    Object.entries(section.rows || {}).forEach(([rowLabel, seats]) => {
+      allRows.add(rowLabel);
+      (seats || []).forEach(seat => {
+        const col = seat.number;
+        if (col > maxCol) maxCol = col;
+        seatLookup[`${rowLabel}-${col}`] = { sectionName: section.name, seat, price: section.price };
+      });
+    });
+  });
+
+  const sortedRows = Array.from(allRows).sort();
+  const totalCols  = maxCol;
+
+  // ── Legend tiers ─────────────────────────────────────────────────────────
+  const tierMap = {};
+  (sections || []).forEach(s => {
+    if (!tierMap[s.name])
+      tierMap[s.name] = { name: s.name, color: getSectionColor?.(s.name) || s.color || '#2CC275', price: s.price };
+  });
+  const tiers = Object.values(tierMap);
+
+  // ── Seat style helpers ────────────────────────────────────────────────────
+  const isMySeat = (seat) => holdInfo?.seats?.some(s => s.id === seat.id) || false;
+  const isSeatClickable = (seat) => seat && seat.status !== 'sold' && seat.status !== 'held' && !isMySeat(seat);
+
+  const emptyCellStyle = {
+    width: SEAT_SIZE, height: SEAT_SIZE, borderRadius: 6,
+    background: '#1a2a1a', border: '1px solid #263326',
+    color: '#3a4a3a', fontSize: 9, fontWeight: 600,
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    flexShrink: 0, cursor: 'default',
   };
 
-  // ─── Seat helpers ──────────────────────────────────────────────────────────
-  const isSeatClickable = (seat) => {
-    if (seat.status === 'sold' || seat.status === 'held') return false;
-    if (holdInfo && !selectedSeats.some((s) => s.id === seat.id)) return false;
-    return true;
-  };
-
-  const getSeatStyle = (seat) => {
-    const isSelected = selectedSeats.some((s) => s.id === seat.id);
-    const isBlocked = seat.status === 'sold' || seat.status === 'held';
-    const isMine = seat.status === 'mine';
-    let bg = '#ffffff';
-    let border = '1.5px solid #aaa';
-    let color = '#333';
-    let shadow = 'none';
-    let cursor = 'pointer';
-    if (isSelected) {
-      bg = '#2CC275'; border = '2px solid #1a8a4a'; color = '#fff';
-      shadow = '0 0 8px #2CC27570';
-    } else if (isBlocked) {
-      bg = '#ff4d4f'; border = '1.5px solid #cc2222'; color = '#fff'; cursor = 'not-allowed';
-    } else if (isMine) {
-      bg = '#FFD700'; border = '1.5px solid #aa9000'; color = '#333';
-    }
+  const getFilledStyle = (seat, secColor) => {
+    const isSelected = selectedSeats.some(s => s.id === seat.id);
+    const isBlocked  = seat.status === 'sold' || seat.status === 'held';
+    const isMine     = isMySeat(seat);
+    let bg = secColor, border = `2px solid ${secColor}`, color = '#fff', cursor = 'pointer', shadow = 'none', opacity = 1;
+    if (isSelected)  { bg = '#2CC275'; border = '2px solid #1a8a4a'; shadow = '0 0 10px #2CC27560'; }
+    else if (isBlocked) { bg = '#3a3a3a'; border = '2px solid #555'; color = '#777'; cursor = 'not-allowed'; opacity = 0.85; }
+    else if (isMine) { bg = '#FFD700'; border = '2px solid #aa9000'; color = '#333'; }
     return {
-      width: SEAT_SIZE, height: SEAT_SIZE, borderRadius: '50%',
-      background: bg, border, color, cursor,
-      fontSize: 9, fontWeight: 800,
-      padding: 0, flexShrink: 0,
+      width: SEAT_SIZE, height: SEAT_SIZE, borderRadius: 6,
+      background: bg, border, color, cursor, opacity,
+      fontSize: 9, fontWeight: 800, boxShadow: shadow,
       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-      boxShadow: shadow,
-      transition: 'background 0.12s, box-shadow 0.12s',
-      userSelect: 'none',
-      WebkitUserSelect: 'none',
+      flexShrink: 0, transition: 'background 0.12s, box-shadow 0.12s',
+      userSelect: 'none', WebkitUserSelect: 'none',
+      position: 'relative', overflow: 'hidden',
     };
   };
 
-  const fmt = (n) =>
-    new Intl.NumberFormat('vi-VN').format(n);
-
+  const fmt = n => new Intl.NumberFormat('vi-VN').format(n);
   const viewportHeight = Math.max(450, Math.min(700, containerWidth * 0.7));
 
-  return (
-    <div style={{ position: 'relative', width: '100%', borderRadius: 14, background: '#0a0a0a', border: '1px solid #1a1a1a' }}>
-      {/* ── Zoom controls ── */}
-      <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 20, display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <button onClick={zoomIn} style={zoomBtnStyle} title="Phóng to">+</button>
-        <button onClick={resetZoom} style={{ ...zoomBtnStyle, fontSize: 10 }} title="Reset zoom">
-          {Math.round(displayScale * 100)}%
-        </button>
-        <button onClick={zoomOut} style={zoomBtnStyle} title="Thu nhỏ">−</button>
-      </div>
+  // ── Stage bar (rendered OUTSIDE pan/zoom) ─────────────────────────────────
+  const isVertical = stagePosition === 'left' || stagePosition === 'right';
 
-      {/* ── Hint ── */}
-      {displayScale < 1.3 && (
+  const StageBar = () => {
+    if (stagePosition === 'none') return null;
+    return (
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        flexShrink: 0,
+        ...(isVertical
+          ? { paddingRight: stagePosition === 'left' ? 16 : 0, paddingLeft: stagePosition === 'right' ? 16 : 0 }
+          : { paddingBottom: stagePosition === 'top' ? 16 : 0, paddingTop: stagePosition === 'bottom' ? 16 : 0 }),
+      }}>
         <div style={{
-          position: 'absolute', bottom: 10, left: '50%', transform: 'translateX(-50%)',
-          zIndex: 20, background: 'rgba(0,0,0,0.75)', border: '1px solid #2CC27540',
-          borderRadius: 20, padding: '5px 14px', color: '#2CC275',
-          fontSize: 11, fontWeight: 600, pointerEvents: 'none', whiteSpace: 'nowrap',
+          background: 'linear-gradient(135deg, #2CC275, #1a8a4a)',
+          color: '#fff',
+          fontWeight: 900,
+          letterSpacing: 4,
+          fontSize: 14,
+          boxShadow: '0 4px 24px rgba(44,194,117,0.4)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: isVertical ? '60px 12px' : '14px 60px',
+          borderRadius: stagePosition === 'top'    ? '0 0 40px 40px'
+            : stagePosition === 'bottom' ? '40px 40px 0 0'
+            : stagePosition === 'left'   ? '0 40px 40px 0'
+            : '40px 0 0 40px',
+          writingMode: isVertical ? 'vertical-rl' : 'horizontal-tb',
+          transform: stagePosition === 'left' ? 'rotate(180deg)' : 'none',
+          userSelect: 'none',
         }}>
-          Scroll để zoom · Kéo để di chuyển
+          SÂN KHẤU
         </div>
-      )}
+      </div>
+    );
+  };
 
-      {/* ── Viewport ── */}
-      <div
-        ref={viewRef}
-        style={{
-          width: '100%', height: viewportHeight,
-          overflow: 'hidden', cursor: 'grab',
-          borderRadius: 14,
-        }}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-      >
-        {/* ── Pan/zoom inner container (transform applied imperatively) ── */}
+  // ── Outer layout direction based on stagePosition ────────────────────────
+  const outerFlexDir = stagePosition === 'left'   ? 'row'
+    : stagePosition === 'right'  ? 'row-reverse'
+    : stagePosition === 'bottom' ? 'column-reverse'
+    : 'column'; // top (default)
+
+  return (
+    <div style={{
+      display: 'flex',
+      flexDirection: outerFlexDir,
+      alignItems: isVertical ? 'stretch' : 'center',
+      width: '100%',
+      borderRadius: 14,
+      background: '#0a0a0a',
+      border: '1px solid #1a1a1a',
+      overflow: 'hidden',
+    }}>
+      {/* Stage bar - always visible, outside pan/zoom */}
+      <StageBar />
+
+      {/* Pan/zoom canvas */}
+      <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+        {/* Zoom controls */}
+        <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 20, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <button onClick={zoomIn}    style={zoomBtnStyle} title="Phóng to">+</button>
+          <button onClick={resetZoom} style={{ ...zoomBtnStyle, fontSize: 10 }} title="Reset zoom">
+            {Math.round(displayScale * 100)}%
+          </button>
+          <button onClick={zoomOut}   style={zoomBtnStyle} title="Thu nhỏ">−</button>
+        </div>
+
+
+        {/* Hint */}
+        {displayScale < 1.3 && (
+          <div style={{
+            position: 'absolute', bottom: 10, left: '50%', transform: 'translateX(-50%)',
+            zIndex: 20, background: 'rgba(0,0,0,0.75)', border: '1px solid #2CC27540',
+            borderRadius: 20, padding: '5px 14px', color: '#2CC275',
+            fontSize: 11, fontWeight: 600, pointerEvents: 'none', whiteSpace: 'nowrap',
+          }}>Scroll để zoom · Kéo để di chuyển</div>
+        )}
+
+        {/* Viewport */}
         <div
-          ref={innerRef}
-          style={{
-            display: 'block',
-            padding: '60px 40px 40px',
-            transformOrigin: '0 0',
-            transform: 'translate(0px, 0px) scale(1)',
-            width: 'max-content',
-            minWidth: '100%',
-          }}
+          ref={viewRef}
+          style={{ width: '100%', height: viewportHeight, overflow: 'hidden', cursor: 'grab' }}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
         >
-          {/* Stage label */}
-          <div style={{ textAlign: 'center', marginBottom: 20 }}>
-            <span style={{
-              background: '#b0b0b0', padding: '8px 60px',
-              borderRadius: '0 0 40px 40px', color: '#222',
-              fontWeight: 900, letterSpacing: 4, fontSize: 14,
-              display: 'inline-block',
-            }}>
-              STAGE
-            </span>
-          </div>
-
-          {/* ── Sections ── */}
-          {sections.map((section) => {
-            const rowLabels = Object.keys(section.rows || {}).sort();
-            const sectionColor = getSectionColor?.(section.name) || section.color || '#2CC275';
-
-            return (
-              <div
-                key={section.name}
-                style={{
-                  background: sectionColor,
-                  borderRadius: 6,
-                  padding: '14px 16px 12px',
-                  marginBottom: 12,
-                  display: 'block',
-                  width: 'max-content',
-                  boxSizing: 'border-box',
-                }}
-              >
-                {/* Section name */}
-                <div style={{ fontWeight: 900, fontSize: 18, color: '#fff', letterSpacing: 1, marginBottom: 10 }}>
-                  {section.name}
-                </div>
-
-                {/* Rows */}
-                {rowLabels.map((rowLabel) => {
-                  const seats = section.rows[rowLabel] || [];
-                  const rowHasAisle = seats.length > 6;
-                  const aisleIdx = rowHasAisle ? Math.floor(seats.length / 2) : seats.length;
-                  const leftSeats  = seats.slice(0, aisleIdx);
-                  const rightSeats = rowHasAisle ? seats.slice(aisleIdx) : [];
-
-                  return (
-                    <div
-                      key={rowLabel}
-                      style={{ display: 'flex', alignItems: 'center', gap: SEAT_GAP, marginBottom: 6 }}
-                    >
-                      {/* Left row label */}
-                      <span style={{ width: 22, color: 'rgba(255,255,255,0.9)', fontSize: 11, fontWeight: 800, flexShrink: 0, textAlign: 'right', display: 'inline-block' }}>
-                        {rowLabel}
-                      </span>
-
-                      {/* Left seats */}
-                      <div style={{ display: 'flex', gap: SEAT_GAP }}>
-                        {leftSeats.map((seat, i) => (
-                          <button
-                            key={seat.id != null ? seat.id : `${section.name}-${rowLabel}-L${i}`}
-                            data-seat="true"
-                            style={getSeatStyle(seat)}
-                            title={`${section.name} ${rowLabel}${seat.number ?? i + 1}${seat.status === 'sold' || seat.status === 'held' ? ' (Đã bán)' : ''}`}
-                            onClick={() => {
-                              if (isSeatClickable(seat)) {
-                                onSeatClick?.({ ...seat, rowLabel, section: section.name });
-                              }
+          <div
+            ref={innerRef}
+            style={{ display: 'inline-block', padding: '60px 40px 40px 60px', transformOrigin: '0 0', transform: 'translate(0px, 0px) scale(1)' }}
+          >
+            {/* Unified seat grid */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: SEAT_GAP }}>
+              {sortedRows.map(rowLabel => (
+                <div key={rowLabel} style={{ display: 'flex', alignItems: 'center', gap: SEAT_GAP }}>
+                  <span style={{ width: 20, color: '#888', fontSize: 11, fontWeight: 800, textAlign: 'right', flexShrink: 0 }}>
+                    {rowLabel}
+                  </span>
+                  {Array.from({ length: totalCols }, (_, i) => {
+                    const col   = i + 1;
+                    const key   = `${rowLabel}-${col}`;
+                    const entry = seatLookup[key] || null;
+                    if (!entry) {
+                      return <div key={key} style={emptyCellStyle}>{col}</div>;
+                    }
+                    const { seat, sectionName } = entry;
+                    const secColor = getSectionColor?.(sectionName) || seat.color || '#2CC275';
+                    return (
+                      <button
+                        key={key}
+                        data-seat="true"
+                        style={getFilledStyle(seat, secColor)}
+                        title={`${sectionName} ${rowLabel}${col}${seat.status === 'sold' || seat.status === 'held' ? ' (Đã bán)' : ''}`}
+                        onClick={() => { if (isSeatClickable(seat)) onSeatClick?.({ ...seat, rowLabel, section: sectionName }); }}
+                      >
+                        {col}
+                        {(seat.status === 'sold' || seat.status === 'held') && (
+                          <svg
+                            viewBox="0 0 100 100"
+                            preserveAspectRatio="none"
+                            style={{
+                              position: 'absolute', top: 0, left: 0,
+                              width: '100%', height: '100%',
+                              pointerEvents: 'none',
                             }}
                           >
-                            {seat.number ?? i + 1}
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Aisle gap */}
-                      {rowHasAisle && (
-                        <div style={{ width: AISLE_WIDTH, flexShrink: 0 }} />
-                      )}
-
-                      {/* Right seats */}
-                      {rightSeats.length > 0 && (
-                        <div style={{ display: 'flex', gap: SEAT_GAP }}>
-                          {rightSeats.map((seat, i) => (
-                            <button
-                              key={seat.id != null ? seat.id : `${section.name}-${rowLabel}-R${i}`}
-                              data-seat="true"
-                              style={getSeatStyle(seat)}
-                              title={`${section.name} ${rowLabel}${seat.number ?? aisleIdx + i + 1}${seat.status === 'sold' || seat.status === 'held' ? ' (Đã bán)' : ''}`}
-                              onClick={() => {
-                                if (isSeatClickable(seat)) {
-                                  onSeatClick?.({ ...seat, rowLabel, section: section.name });
-                                }
-                              }}
-                            >
-                              {seat.number ?? aisleIdx + i + 1}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Right row label */}
-                      <span style={{ width: 22, color: 'rgba(255,255,255,0.9)', fontSize: 11, fontWeight: 800, flexShrink: 0, display: 'inline-block' }}>
-                        {rowLabel}
-                      </span>
-                    </div>
-                  );
-                })}
-
-                {/* Price */}
-                <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 11, fontWeight: 700, marginTop: 8 }}>
-                  {fmt(section.price)}đ / ghế
+                            <line x1="8" y1="8" x2="92" y2="92" stroke="#e53935" strokeWidth="14" strokeLinecap="round" />
+                            <line x1="92" y1="8" x2="8" y2="92" stroke="#e53935" strokeWidth="14" strokeLinecap="round" />
+                          </svg>
+                        )}
+                      </button>
+                    );
+                  })}
+                  <span style={{ width: 20, color: '#888', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>
+                    {rowLabel}
+                  </span>
                 </div>
-              </div>
-            );
-          })}
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </div>

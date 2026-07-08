@@ -98,7 +98,7 @@ const OrganizerDashboard = () => {
     title: '', description: '', location: '', image_url: '',
     event_date: '', end_date: '', organizer: '', category_id: ''
   });
-  const [ticketRows, setTicketRows] = useState([{ type: 'Vé Thường', price: '', quantity_available: 100 }]);
+  const [ticketRows, setTicketRows] = useState([{ type: 'Vé Thường', price: '', quantity_available: 100, max_per_order: 10 }]);
   const [deletedTicketIds, setDeletedTicketIds] = useState([]);
   const [scheduleTicketEvent, setScheduleTicketEvent] = useState(null);
 
@@ -107,8 +107,10 @@ const OrganizerDashboard = () => {
   const [hasSeatMap, setHasSeatMap] = useState(false);
   const [seatmapDone, setSeatmapDone] = useState(false);
   const [showSeatmapBuilder, setShowSeatmapBuilder] = useState(false);
+  const [seatmapBuilderIsEditing, setSeatmapBuilderIsEditing] = useState(false);
   const [showSeatmapViewer, setShowSeatmapViewer] = useState(false);
   const [tempCreatedEventId, setTempCreatedEventId] = useState(null);
+  const [savedStagePosition, setSavedStagePosition] = useState('top'); // stage position from DB
   // Step 4 — license
   const [licenseFiles, setLicenseFiles] = useState([]);   // File objects chưa upload
   const [licenseUrls, setLicenseUrls] = useState([]);     // URLs đã upload thành công
@@ -123,6 +125,7 @@ const OrganizerDashboard = () => {
   const [draftSavedAt, setDraftSavedAt] = useState(null);
   // Rich text editor
   const editorRef = useRef(null);
+  const editorSyncKey = useRef(null); // tracks which event is loaded in editor
   // Events tab search/filter
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -238,6 +241,16 @@ const OrganizerDashboard = () => {
     if (field === 'price') {
       const raw = value.replace(/\./g, '');
       if (!isNaN(raw)) rows[index][field] = formatCurrency(raw);
+    } else if (field === 'max_per_order') {
+      const qty = parseInt(rows[index].quantity_available) || 1;
+      const maxVal = Math.min(parseInt(value) || 1, qty);
+      rows[index][field] = maxVal;
+    } else if (field === 'quantity_available') {
+      rows[index][field] = value;
+      // Auto-adjust max_per_order if it exceeds new quantity
+      const newQty = parseInt(value) || 1;
+      const currentMax = parseInt(rows[index].max_per_order) || 10;
+      if (currentMax > newQty) rows[index].max_per_order = newQty;
     } else {
       rows[index][field] = value;
     }
@@ -264,8 +277,8 @@ const OrganizerDashboard = () => {
     try {
       const tRes = await api.get(`/api/tickets/${event.id}`);
       setTicketRows(tRes.data.length > 0
-        ? tRes.data.map(t => ({ id: t.id, type: t.type, price: formatCurrency(Math.round(Number(t.price))), quantity_available: t.quantity_available }))
-        : [{ type: 'Vé Thường', price: '', quantity_available: 100 }]
+        ? tRes.data.map(t => ({ id: t.id, type: t.type, price: formatCurrency(Math.round(Number(t.price))), quantity_available: t.quantity_available, max_per_order: t.max_per_order || 10 }))
+        : [{ type: 'Vé Thường', price: '', quantity_available: 100, max_per_order: 10 }]
       );
       // Load Step 4 data
       const evRes = await api.get(`/api/events/${event.id}`);
@@ -274,9 +287,16 @@ const OrganizerDashboard = () => {
       setWantInvoice(ev.want_invoice || false);
       setInvoiceInfo({ businessType: ev.invoice_business_type || 'personal', fullName: ev.invoice_full_name || '', companyName: ev.invoice_company_name || '', taxCode: ev.invoice_tax_code || '', address: ev.invoice_address || '' });
       setLicenseNote(ev.license_note || '');
-      setLicenseUrls(ev.license_files || []);  // Load URLs đã lưu
+      // Safe parse license_files (có thể là JSON string hoặc array)
+      const rawLicenseFiles = ev.license_files;
+      let parsedLicenseUrls = rawLicenseFiles;
+      if (typeof rawLicenseFiles === 'string') {
+        try { parsedLicenseUrls = JSON.parse(rawLicenseFiles); } catch { parsedLicenseUrls = []; }
+      }
+      setLicenseUrls(Array.isArray(parsedLicenseUrls) ? parsedLicenseUrls : []);  // Load URLs đã lưu
       setLicenseFiles([]);
-    } catch { setTicketRows([{ type: 'Vé Thường', price: '', quantity_available: 100 }]); }
+      setSavedStagePosition(ev.stage_position || 'top'); // Load stage position
+    } catch { setTicketRows([{ type: 'Vé Thường', price: '', quantity_available: 100, max_per_order: 10 }]); }
     // Load seatmap status
     setHasSeatMap(!!event.has_seatmap);
     setSeatmapDone(!!event.has_seatmap);
@@ -342,8 +362,53 @@ const OrganizerDashboard = () => {
     }
   }, [eventData, ticketRows, licenseNote, paymentInfo, wantInvoice, invoiceInfo, hasSeatMap, wizardStep, editingId]); // eslint-disable-line
 
-  // Rich-text exec
-  const execCmd = (cmd, val = null) => { document.execCommand(cmd, false, val); editorRef.current?.focus(); };
+  // Rich text editor — active format tracking
+  const [editorActiveFormats, setEditorActiveFormats] = useState({});
+  const updateEditorFormats = useCallback(() => {
+    try {
+      const formats = {
+        bold: document.queryCommandState('bold'),
+        italic: document.queryCommandState('italic'),
+        underline: document.queryCommandState('underline'),
+        strikeThrough: document.queryCommandState('strikeThrough'),
+        insertUnorderedList: document.queryCommandState('insertUnorderedList'),
+        insertOrderedList: document.queryCommandState('insertOrderedList'),
+      };
+      const block = document.queryCommandValue('formatBlock').toLowerCase();
+      formats.blockH2 = block === 'h2';
+      formats.blockH3 = block === 'h3';
+      formats.blockQuote = block === 'blockquote';
+      setEditorActiveFormats(formats);
+    } catch { /* ignore */ }
+  }, []);
+  useEffect(() => {
+    document.addEventListener('selectionchange', updateEditorFormats);
+    return () => document.removeEventListener('selectionchange', updateEditorFormats);
+  }, [updateEditorFormats]);
+
+  const execCmd = (cmd, val = null) => {
+    editorRef.current?.focus();
+    document.execCommand(cmd, false, val);
+    if (editorRef.current) setEventData(d => ({ ...d, description: editorRef.current.innerHTML }));
+    setTimeout(updateEditorFormats, 0);
+  };
+
+  // Sync editor innerHTML when switching event (editingId changes) or resetting form
+  // This avoids dangerouslySetInnerHTML which causes cursor-jump on every keystroke
+  useEffect(() => {
+    const syncKey = editingId ?? 'new';
+    if (editorRef.current && editorSyncKey.current !== syncKey) {
+      editorRef.current.innerHTML = eventData.description || '';
+      editorSyncKey.current = syncKey;
+    }
+  }, [editingId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Also sync when description is externally cleared (resetWizard)
+  useEffect(() => {
+    if (editorRef.current && (eventData.description === '' || eventData.description === null)) {
+      editorRef.current.innerHTML = '';
+    }
+  }, [eventData.description]);
 
   const handleSubmit = async () => {
     try {
@@ -377,7 +442,7 @@ const OrganizerDashboard = () => {
           catch { /* ticket has orders */ }
         }
         for (const ticket of ticketRows) {
-          const tPayload = { event_id: evId, type: ticket.type, price: parseCurrency(ticket.price), quantity_available: parseInt(ticket.quantity_available) };
+          const tPayload = { event_id: evId, type: ticket.type, price: parseCurrency(ticket.price), quantity_available: parseInt(ticket.quantity_available), max_per_order: parseInt(ticket.max_per_order) || 10 };
           if (ticket.id) await api.put(`/api/tickets/${ticket.id}`, tPayload);
           else await api.post('/api/tickets', tPayload);
         }
@@ -386,7 +451,7 @@ const OrganizerDashboard = () => {
         const eventRes = await api.post('/api/events', payload);
         const newId = eventRes.data.id;
         for (const ticket of ticketRows) {
-          await api.post('/api/tickets', { event_id: newId, type: ticket.type, price: parseCurrency(ticket.price), quantity_available: parseInt(ticket.quantity_available) });
+          await api.post('/api/tickets', { event_id: newId, type: ticket.type, price: parseCurrency(ticket.price), quantity_available: parseInt(ticket.quantity_available), max_per_order: parseInt(ticket.max_per_order) || 10 });
         }
         alert('Sự kiện đã được tạo và đang chờ Admin duyệt!');
       }
@@ -632,30 +697,6 @@ const OrganizerDashboard = () => {
         </div>
       </div>
 
-      {/* Market Trends & Insights */}
-      <div style={{ background: '#1e1e1e', padding: '24px', borderRadius: '16px', border: '1px solid #333', marginBottom: '40px' }}>
-        <h3 style={{ color: '#2CC275', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <FaChartLine /> Thấu Hiểu Thị Trường & Xu Hướng
-        </h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
-          <div style={{ background: '#252525', padding: '20px', borderRadius: '12px', borderLeft: '4px solid #1890ff' }}>
-            <h4 style={{ color: '#aaa', margin: '0 0 10px 0', fontSize: '14px' }}>Sự Kiện Bán Chạy Nhất</h4>
-            <p style={{ color: '#fff', fontSize: '16px', margin: 0, fontWeight: '500' }}>
-              {revenueDetailed.length > 0
-                ? <><strong style={{ color: '#1890ff' }}>{revenueDetailed[0].event_title}</strong> — doanh thu cao nhất với {new Intl.NumberFormat('vi-VN', { notation: 'compact' }).format(revenueDetailed[0].total_revenue)}đ</>  
-                : 'Chưa có dữ liệu giao dịch'}
-            </p>
-          </div>
-          <div style={{ background: '#252525', padding: '20px', borderRadius: '12px', borderLeft: '4px solid #2CC275' }}>
-            <h4 style={{ color: '#aaa', margin: '0 0 10px 0', fontSize: '14px' }}>Danh Mục Hiệu Quả Nhất</h4>
-            <p style={{ color: '#fff', fontSize: '16px', margin: 0, fontWeight: '500' }}>
-              {revenueByCategory.length > 0
-                ? <><span style={{ color: '#2CC275', fontWeight: 700 }}>{revenueByCategory[0].category_name}</span> mang lại doanh thu cao nhất — {new Intl.NumberFormat('vi-VN', { notation: 'compact' }).format(revenueByCategory[0].total_revenue)}đ</>
-                : 'Chưa đủ dữ liệu phân tích'}
-            </p>
-          </div>
-        </div>
-      </div>
 
       {/* Stats Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '40px' }}>
@@ -780,51 +821,97 @@ const OrganizerDashboard = () => {
                       currentUrl={eventData.image_url ? (eventData.image_url.startsWith('http') ? eventData.image_url : `http://localhost:5001${eventData.image_url}`) : ''}
                       onUpload={url => setEventData({ ...eventData, image_url: url })}
                       label="Ảnh bìa sự kiện" aspectRatio={16 / 9}
+                      maxSizeMB={5}
+                      minWidth={1200}
+                      minHeight={630}
                     />
                   </div>
                   {/* Rich text description */}
                   <div style={{ gridColumn: '1/-1' }}>
                     <label style={labelStyle}>Mô tả sự kiện</label>
-                    <div style={{ background: '#252525', border: '1px solid #444', borderRadius: '10px', overflow: 'hidden' }}>
-                      {/* Toolbar */}
-                      <div style={{ display: 'flex', gap: '2px', padding: '8px 10px', borderBottom: '1px solid #333', flexWrap: 'wrap' }}>
+                    <div style={{ background: '#181818', border: '1px solid #333', borderRadius: '10px', overflow: 'hidden' }}
+                      onFocusCapture={e => e.currentTarget.style.borderColor = '#2CC275'}
+                      onBlurCapture={e => e.currentTarget.style.borderColor = '#333'}
+                    >
+                      {/* Toolbar with active states */}
+                      <div style={{ display: 'flex', gap: '2px', padding: '8px 10px', borderBottom: '1px solid #252525', background: '#1e1e1e', flexWrap: 'wrap', alignItems: 'center' }}>
                         {[
-                          { icon: <FaBold size={12} />, cmd: 'bold', title: 'Đậm' },
-                          { icon: <FaItalic size={12} />, cmd: 'italic', title: 'Nghiêng' },
-                          { icon: <FaUnderline size={12} />, cmd: 'underline', title: 'Gạch dưới' },
-                          { icon: <FaStrikethrough size={12} />, cmd: 'strikeThrough', title: 'Gạch ngang' },
-                        ].map(({ icon, cmd, title }) => (
-                          <button key={cmd} type="button" title={title} onClick={() => execCmd(cmd)}
-                            style={{ background: 'transparent', border: 'none', color: '#aaa', width: '28px', height: '28px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            {icon}
-                          </button>
-                        ))}
-                        <div style={{ width: '1px', background: '#333', margin: '2px 4px' }} />
+                          { icon: <FaBold size={12} />, cmd: 'bold', title: 'In đậm', key: 'bold' },
+                          { icon: <FaItalic size={12} />, cmd: 'italic', title: 'In nghiêng', key: 'italic' },
+                          { icon: <FaUnderline size={12} />, cmd: 'underline', title: 'Gạch chân', key: 'underline' },
+                          { icon: <FaStrikethrough size={12} />, cmd: 'strikeThrough', title: 'Gạch ngang', key: 'strikeThrough' },
+                        ].map(({ icon, cmd, title, key }) => {
+                          const isActive = editorActiveFormats[key];
+                          return (
+                            <button key={cmd} type="button" title={title}
+                              onMouseDown={e => { e.preventDefault(); execCmd(cmd); }}
+                              style={{ background: isActive ? '#2CC27530' : 'transparent', border: isActive ? '1px solid #2CC27580' : '1px solid transparent', color: isActive ? '#2CC275' : '#888', width: '30px', height: '30px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: isActive ? '700' : '400' }}>
+                              {icon}
+                            </button>
+                          );
+                        })}
+                        <div style={{ width: '1px', height: '20px', background: '#333', margin: '0 2px' }} />
                         {[
-                          { icon: <FaListUl size={12} />, cmd: 'insertUnorderedList', title: 'Danh sách' },
-                          { icon: <FaListOl size={12} />, cmd: 'insertOrderedList', title: 'Danh sách số' },
-                          { icon: <FaQuoteLeft size={12} />, cmd: 'formatBlock', val: 'blockquote', title: 'Trích dẫn' },
-                        ].map(({ icon, cmd, val, title }) => (
-                          <button key={cmd} type="button" title={title} onClick={() => execCmd(cmd, val || null)}
-                            style={{ background: 'transparent', border: 'none', color: '#aaa', width: '28px', height: '28px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            {icon}
-                          </button>
-                        ))}
-                        <div style={{ width: '1px', background: '#333', margin: '2px 4px' }} />
-                        <button type="button" title="Chèn ảnh URL" onClick={() => { const u = prompt('URL ảnh:'); if (u) execCmd('insertImage', u); }}
-                          style={{ background: 'transparent', border: 'none', color: '#aaa', width: '28px', height: '28px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          { icon: <span style={{fontSize:'11px',fontWeight:'800',fontFamily:'monospace'}}>H2</span>, cmd: 'formatBlock', val: 'h2', title: 'Tiêu đề lớn', key: 'blockH2' },
+                          { icon: <span style={{fontSize:'11px',fontWeight:'800',fontFamily:'monospace'}}>H3</span>, cmd: 'formatBlock', val: 'h3', title: 'Tiêu đề nhỏ', key: 'blockH3' },
+                          { icon: <FaListUl size={12} />, cmd: 'insertUnorderedList', title: 'Danh sách gạch đầu dòng', key: 'insertUnorderedList' },
+                          { icon: <FaListOl size={12} />, cmd: 'insertOrderedList', title: 'Danh sách số', key: 'insertOrderedList' },
+                          { icon: <FaQuoteLeft size={12} />, cmd: 'formatBlock', val: 'blockquote', title: 'Trích dẫn', key: 'blockQuote' },
+                        ].map(({ icon, cmd, val, title, key }) => {
+                          const isActive = editorActiveFormats[key];
+                          return (
+                            <button key={key} type="button" title={title}
+                              onMouseDown={e => { e.preventDefault(); execCmd(cmd, val || null); }}
+                              style={{ background: isActive ? '#2CC27530' : 'transparent', border: isActive ? '1px solid #2CC27580' : '1px solid transparent', color: isActive ? '#2CC275' : '#888', width: '30px', height: '30px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              {icon}
+                            </button>
+                          );
+                        })}
+                        <div style={{ width: '1px', height: '20px', background: '#333', margin: '0 2px' }} />
+                        <button type="button" title="Chèn ảnh URL"
+                          onMouseDown={e => { e.preventDefault(); const u = prompt('URL ảnh:'); if (u) execCmd('insertImage', u); }}
+                          style={{ background: 'transparent', border: '1px solid transparent', color: '#888', width: '30px', height: '30px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                           <FaImage size={12} />
                         </button>
-                        <div style={{ width: '1px', background: '#333', margin: '2px 4px' }} />
-                        <button type="button" onClick={() => execCmd('undo')} style={{ background: 'transparent', border: 'none', color: '#aaa', width: '28px', height: '28px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><FaUndo size={11} /></button>
-                        <button type="button" onClick={() => execCmd('redo')} style={{ background: 'transparent', border: 'none', color: '#aaa', width: '28px', height: '28px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><FaRedo size={11} /></button>
+                        <div style={{ flex: 1 }} />
+                        <button type="button" onMouseDown={e => { e.preventDefault(); execCmd('undo'); }} style={{ background: 'transparent', border: '1px solid transparent', color: '#888', width: '30px', height: '30px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><FaUndo size={11} /></button>
+                        <button type="button" onMouseDown={e => { e.preventDefault(); execCmd('redo'); }} style={{ background: 'transparent', border: '1px solid transparent', color: '#888', width: '30px', height: '30px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><FaRedo size={11} /></button>
                       </div>
                       <div
                         ref={editorRef} contentEditable suppressContentEditableWarning
                         onInput={e => { const html = e.currentTarget.innerHTML; setEventData(d => ({ ...d, description: html })); }}
-                        dangerouslySetInnerHTML={{ __html: eventData.description }}
-                        style={{ minHeight: '160px', padding: '14px 16px', color: '#ddd', fontSize: '14px', lineHeight: '1.7', outline: 'none' }}
+                        onKeyUp={updateEditorFormats} onMouseUp={updateEditorFormats}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            setTimeout(() => {
+                              const sel = window.getSelection();
+                              if (sel && sel.rangeCount > 0) {
+                                const range = sel.getRangeAt(0);
+                                const tmp = document.createElement('span');
+                                tmp.innerHTML = '​';
+                                range.insertNode(tmp);
+                                tmp.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+                                if (tmp.parentNode) tmp.parentNode.removeChild(tmp);
+                              }
+                            }, 10);
+                          }
+                        }}
+                        data-placeholder="Mô tả chi tiết về sự kiện..."
+                        style={{ minHeight: '180px', maxHeight: '360px', overflowY: 'auto', padding: '14px 16px 14px 32px', color: '#d4d4d4', fontSize: '14px', lineHeight: '1.75', outline: 'none', borderRadius: '0 0 10px 10px' }}
                       />
+                      <style>{`
+                        [contenteditable]:empty:before { content: attr(data-placeholder); color: #444; pointer-events: none; display: block; }
+                        [contenteditable] h2 { color: #fff; font-size: 1.25em; font-weight: 700; margin: 14px 0 6px; border-bottom: 1px solid #2a2a2a; padding-bottom: 5px; }
+                        [contenteditable] h3 { color: #e0e0e0; font-size: 1.08em; font-weight: 600; margin: 10px 0 4px; }
+                        [contenteditable] blockquote { border-left: 3px solid #2CC275; padding: 8px 16px; margin: 10px 0; color: #999; background: #2CC27510; border-radius: 0 8px 8px 0; font-style: italic; }
+                        [contenteditable] ul { padding-left: 1.4em; margin: 6px 0; list-style-type: disc; list-style-position: outside; }
+                        [contenteditable] ol { padding-left: 1.6em; margin: 6px 0; list-style-type: decimal; list-style-position: outside; }
+                        [contenteditable] li { margin: 3px 0; color: #d4d4d4; display: list-item; }
+                        [contenteditable] img { max-width: 100%; border-radius: 8px; display: block; margin: 10px 0; }
+                        [contenteditable] strong, [contenteditable] b { color: #fff; font-weight: 700; }
+                        [contenteditable] em, [contenteditable] i { color: #d0d0d0; }
+                        [contenteditable] p { margin: 6px 0; }
+                      `}</style>
                     </div>
                   </div>
                 </div>
@@ -843,7 +930,7 @@ const OrganizerDashboard = () => {
                 <div style={{ color: '#555', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '20px' }}>Thiết lập hạng vé</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px' }}>
                   {ticketRows.map((ticket, i) => (
-                    <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '12px', alignItems: 'end', background: '#111', padding: '16px', borderRadius: '10px', border: '1px solid #2a2a2a' }}>
+                    <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: '12px', alignItems: 'end', background: '#111', padding: '16px', borderRadius: '10px', border: '1px solid #2a2a2a' }}>
                       <div>
                         <label style={{ ...labelStyle, fontSize: '11px' }}>Tên hạng vé</label>
                         <input style={inputStyle} value={ticket.type} onChange={e => handleTicketChange(i, 'type', e.target.value)} placeholder="VIP, Thường..." onFocus={e => e.target.style.borderColor='#2CC275'} onBlur={e => e.target.style.borderColor='#444'} />
@@ -856,6 +943,10 @@ const OrganizerDashboard = () => {
                         <label style={{ ...labelStyle, fontSize: '11px' }}>Số lượng</label>
                         <input type="number" style={inputStyle} value={ticket.quantity_available} onChange={e => handleTicketChange(i, 'quantity_available', e.target.value)} onFocus={e => e.target.style.borderColor='#2CC275'} onBlur={e => e.target.style.borderColor='#444'} />
                       </div>
+                      <div>
+                        <label style={{ ...labelStyle, fontSize: '11px' }}>Tối đa/đơn</label>
+                        <input type="number" style={{ ...inputStyle, color: '#1890ff' }} value={ticket.max_per_order ?? 10} onChange={e => handleTicketChange(i, 'max_per_order', parseInt(e.target.value) || 1)} min={1} max={parseInt(ticket.quantity_available) || 999} onFocus={e => e.target.style.borderColor='#1890ff'} onBlur={e => e.target.style.borderColor='#444'} title="Số lượng vé tối đa mỗi đơn hàng (không được vượt quá số lượng vé)" />
+                      </div>
                       {ticketRows.length > 1 && (
                         <button type="button" onClick={() => handleRemoveTicket(i)} style={{ background: '#ff4d4f20', border: '1px solid #ff4d4f60', color: '#ff4d4f', width: '36px', height: '36px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                           <FaTrash size={12} />
@@ -864,7 +955,7 @@ const OrganizerDashboard = () => {
                     </div>
                   ))}
                 </div>
-                <button type="button" onClick={() => setTicketRows([...ticketRows, { type: '', price: '', quantity_available: 0 }])}
+                <button type="button" onClick={() => setTicketRows([...ticketRows, { type: '', price: '', quantity_available: 0, max_per_order: 10 }])}
                   style={{ background: 'transparent', color: '#2CC275', border: '1px dashed #2CC27560', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px', width: '100%', justifyContent: 'center' }}>
                   <FaPlus size={11} /> Thêm hạng vé
                 </button>
@@ -921,6 +1012,11 @@ const OrganizerDashboard = () => {
                                 if (!ticket.type) continue;
                                 await api.post('/api/tickets', { event_id: newId, type: ticket.type, price: parseCurrency(ticket.price), quantity_available: parseInt(ticket.quantity_available) || 0 });
                               }
+                              // Reload ticketRows with IDs from DB to prevent duplicate creation on final submit
+                              const tRes = await api.get(`/api/tickets/${newId}`);
+                              if (tRes.data.length > 0) {
+                                setTicketRows(tRes.data.map(t => ({ id: t.id, type: t.type, price: formatCurrency(Math.round(Number(t.price))), quantity_available: t.quantity_available })));
+                              }
                             } catch (err) { alert('Lỗi tạo nháp: ' + (err.response?.data?.msg || err.message)); return; }
                           }
                           setShowSeatmapBuilder(true);
@@ -936,7 +1032,7 @@ const OrganizerDashboard = () => {
                   <SeatmapViewerModal
                     event={{ id: editingId || tempCreatedEventId, title: eventData.title }}
                     onClose={() => setShowSeatmapViewer(false)}
-                    onEdit={() => { setShowSeatmapViewer(false); setShowSeatmapBuilder(true); }}
+                  onEdit={() => { setShowSeatmapViewer(false); setShowSeatmapBuilder(true); setSeatmapBuilderIsEditing(true); }}
                     onDelete={async () => {
                       if (!window.confirm('Xóa toàn bộ sơ đồ?')) return;
                       try { await api.delete(`/api/events/${editingId || tempCreatedEventId}/seatmap`); setShowSeatmapViewer(false); setSeatmapDone(false); setHasSeatMap(false); }
@@ -946,9 +1042,19 @@ const OrganizerDashboard = () => {
                 )}
                 {showSeatmapBuilder && (editingId || tempCreatedEventId) && (
                   <SeatmapBuilderModal
-                    event={{ id: editingId || tempCreatedEventId, title: eventData.title }}
-                    onClose={() => setShowSeatmapBuilder(false)}
-                    onSuccess={() => { setShowSeatmapBuilder(false); setSeatmapDone(true); setHasSeatMap(true); }}
+                    event={{ id: editingId || tempCreatedEventId, title: eventData.title, stage_position: savedStagePosition }}
+                    onClose={() => { setShowSeatmapBuilder(false); setSeatmapBuilderIsEditing(false); }}
+                    isEditing={seatmapBuilderIsEditing}
+                    onSuccess={async () => {
+                      setShowSeatmapBuilder(false); setSeatmapBuilderIsEditing(false);
+                      setSeatmapDone(true); setHasSeatMap(true);
+                      // Sync savedStagePosition from DB after save
+                      try {
+                        const evId = editingId || tempCreatedEventId;
+                        const r = await api.get(`/api/events/${evId}`);
+                        setSavedStagePosition(r.data.stage_position || 'top');
+                      } catch { /* non-blocking */ }
+                    }}
                   />
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '24px', paddingTop: '16px', borderTop: '1px solid #2a2a2a' }}>
@@ -1008,8 +1114,11 @@ const OrganizerDashboard = () => {
                         {licenseUrls.map((url, i) => {
                           const filename = url.split('/').pop();
                           const isPdf = filename.toLowerCase().endsWith('.pdf');
-                          // URL /uploads/... là relative path — CRA proxy (dev) và nginx (production) đều xử lý đúng
-                          const fullUrl = url.startsWith('http') ? url : url;
+                          // Build absolute URL: relative /uploads/... → backend host
+                          const backendBase = process.env.NODE_ENV === 'production'
+                            ? (process.env.REACT_APP_API_URL ?? window.location.origin)
+                            : (process.env.REACT_APP_API_URL || 'http://localhost:5001');
+                          const fullUrl = url.startsWith('http') ? url : `${backendBase}${url}`;
                           return (
                             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#111', borderRadius: '8px', padding: '10px 14px', border: '1px solid #2a2a2a' }}>
                               <FaFileAlt size={16} color={isPdf ? '#ff6b6b' : '#2CC275'} />

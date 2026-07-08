@@ -204,17 +204,39 @@ router.get('/revenue-by-ticket-type/:event_id', auth, requireOrganizerOrAdmin, a
     }
 
     const result = await db.query(`
-      SELECT 
-        t.id as ticket_id,
-        t.type as ticket_type,
-        COALESCE(SUM(oi.quantity_ordered), 0) as quantity_sold,
-        t.quantity_available as quantity_remaining,
-        COALESCE(SUM(oi.quantity_ordered * oi.price_at_purchase), 0) as total_revenue,
-        t.price as unit_price,
-        ROUND(COALESCE(AVG(oi.price_at_purchase), 0)::numeric, 0) as avg_price
+      SELECT
+        t.id          AS ticket_id,
+        t.type        AS ticket_type,
+        t.price       AS unit_price,
+        t.quantity_available AS quantity_total,
+        COALESCE(SUM(
+          CASE
+            WHEN oi.ticket_id = t.id THEN oi.quantity_ordered          -- direct ticket purchase
+            WHEN oi.seat_id IS NOT NULL AND s.section = t.type THEN 1  -- seatmap seat matching section
+            ELSE 0
+          END
+        ), 0)::INT    AS quantity_sold,
+        t.quantity_available AS quantity_remaining,
+        COALESCE(SUM(
+          CASE
+            WHEN oi.ticket_id = t.id THEN oi.quantity_ordered * oi.price_at_purchase
+            WHEN oi.seat_id IS NOT NULL AND s.section = t.type THEN oi.price_at_purchase
+            ELSE 0
+          END
+        ), 0)         AS total_revenue
       FROM tickets t
-      LEFT JOIN order_items oi ON t.id = oi.ticket_id
+      LEFT JOIN order_items oi ON (
+        oi.ticket_id = t.id
+        OR (oi.seat_id IS NOT NULL AND (
+          SELECT section FROM seats WHERE id = oi.seat_id
+        ) = t.type AND (
+          SELECT event_id FROM orders WHERE id = oi.order_id
+        ) = t.event_id)
+      )
+      LEFT JOIN seats s ON s.id = oi.seat_id
+      LEFT JOIN orders o ON o.id = oi.order_id AND o.status = 'completed'
       WHERE t.event_id = $1
+        AND (oi.order_id IS NULL OR o.id IS NOT NULL)
       GROUP BY t.id, t.type, t.price, t.quantity_available
       ORDER BY t.price DESC
     `, [event_id]);
@@ -331,16 +353,23 @@ router.get('/event-attendees/:event_id', auth, requireOrganizerOrAdmin, async (r
         o.id            AS order_id,
         o.order_code    AS order_code,
         u.email         AS customer_email,
-        SPLIT_PART(u.email, '@', 1) AS customer_name,
-        t.type          AS ticket_type,
+        COALESCE(u.full_name, SPLIT_PART(u.email, '@', 1)) AS customer_name,
+        COALESCE(
+          t.type,
+          vz.name,
+          s.section,
+          'Vé sự kiện'
+        )               AS ticket_type,
         oi.quantity_ordered,
         oi.price_at_purchase,
         (oi.quantity_ordered * oi.price_at_purchase) AS subtotal,
         o.created_at    AS purchased_at
       FROM order_items oi
-      JOIN orders o    ON o.id = oi.order_id
-      JOIN users u     ON u.id = o.user_id
-      LEFT JOIN tickets t ON t.id = oi.ticket_id
+      JOIN orders o           ON o.id = oi.order_id
+      JOIN users u            ON u.id = o.user_id
+      LEFT JOIN tickets t     ON t.id = oi.ticket_id
+      LEFT JOIN venue_zones vz ON vz.id = oi.zone_id
+      LEFT JOIN seats s       ON s.id = oi.seat_id
       WHERE o.event_id = $1
         AND o.status = 'completed'
       ORDER BY o.created_at DESC

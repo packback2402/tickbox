@@ -12,6 +12,11 @@ import api from '../api';
  *   aspectRatio {number}   Tỷ lệ khung ảnh preview (mặc định: 16/9)
  *   required    {boolean}  Có bắt buộc chọn ảnh không
  *   theme       {string}   'dark' | 'light' (mặc định: 'dark')
+ *   maxSizeMB   {number}   Kích thước file tối đa (MB, mặc định: 5)
+ *   minWidth    {number}   Chiều rộng tối thiểu (px)
+ *   minHeight   {number}   Chiều cao tối thiểu (px)
+ *   maxWidth    {number}   Chiều rộng tối đa (px)
+ *   maxHeight   {number}   Chiều cao tối đa (px)
  */
 const ImageUploader = ({
   currentUrl   = '',
@@ -21,6 +26,11 @@ const ImageUploader = ({
   aspectRatio  = 16 / 9,
   required     = false,
   theme        = 'dark',
+  maxSizeMB    = 5,
+  minWidth,
+  minHeight,
+  maxWidth,
+  maxHeight,
 }) => {
   const inputRef              = useRef(null);
   const [preview,  setPreview]  = useState(currentUrl || '');
@@ -50,15 +60,48 @@ const ImageUploader = ({
   const doUpload = useCallback(async (file) => {
     if (!file) return;
 
-    // Client-side validation
+    // 1. File type check
     const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
     if (!ALLOWED_TYPES.includes(file.type)) {
       setError('Chỉ chấp nhận ảnh JPG, PNG, WEBP hoặc GIF.');
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      setError('Ảnh không được vượt quá 5MB.');
+
+    // 2. File size check
+    if (file.size > maxSizeMB * 1024 * 1024) {
+      setError(`Ảnh không được vượt quá ${maxSizeMB}MB.`);
       return;
+    }
+
+    // 3. Dimension check (nếu có giới hạn)
+    if (minWidth || minHeight || maxWidth || maxHeight) {
+      const dimensionOk = await new Promise((resolve) => {
+        const img = new window.Image();
+        img.onload = () => {
+          const w = img.naturalWidth;
+          const h = img.naturalHeight;
+          if (minWidth && w < minWidth) {
+            setError(`Chiều rộng tối thiểu ${minWidth}px (ảnh hiện tại: ${w}px).`);
+            resolve(false); return;
+          }
+          if (minHeight && h < minHeight) {
+            setError(`Chiều cao tối thiểu ${minHeight}px (ảnh hiện tại: ${h}px).`);
+            resolve(false); return;
+          }
+          if (maxWidth && w > maxWidth) {
+            setError(`Chiều rộng tối đa ${maxWidth}px (ảnh hiện tại: ${w}px).`);
+            resolve(false); return;
+          }
+          if (maxHeight && h > maxHeight) {
+            setError(`Chiều cao tối đa ${maxHeight}px (ảnh hiện tại: ${h}px).`);
+            resolve(false); return;
+          }
+          resolve(true);
+        };
+        img.onerror = () => resolve(true); // bỏ qua nếu không đọc được
+        img.src = URL.createObjectURL(file);
+      });
+      if (!dimensionOk) return;
     }
 
     // Instant local preview
@@ -218,8 +261,14 @@ const ImageUploader = ({
                     <span style={{ color: textMain, fontSize: 13, fontWeight: 600, textAlign: 'center' }}>
                       Kéo thả hoặc click để chọn ảnh
                     </span>
-                    <span style={{ color: textSub, fontSize: 11 }}>
-                      JPG, PNG, WEBP, GIF · Tối đa 5MB
+                    <span style={{ color: textSub, fontSize: 11, textAlign: 'center', lineHeight: 1.6 }}>
+                      JPG, PNG, WEBP, GIF · Tối đa {maxSizeMB}MB
+                      {(minWidth || minHeight) && (
+                        <><br/>Tối thiểu {minWidth && `${minWidth}px`}{minWidth && minHeight && ' × '}{minHeight && `${minHeight}px`}</>
+                      )}
+                      {(maxWidth || maxHeight) && (
+                        <><br/>Tối đa {maxWidth && `${maxWidth}px`}{maxWidth && maxHeight && ' × '}{maxHeight && `${maxHeight}px`}</>
+                      )}
                     </span>
                   </>
                 )}
@@ -337,7 +386,8 @@ const ImageUploader = ({
               {uploading ? 'Đang tải...' : (hasPreview ? 'Thay ảnh' : 'Chọn ảnh')}
             </button>
             <p style={{ color: textSub, fontSize: 11, margin: 0, lineHeight: 1.4 }}>
-              JPG, PNG, WEBP, GIF<br/>Tối đa 5MB
+              JPG, PNG, WEBP, GIF<br/>Tối đa {maxSizeMB}MB
+              {(minWidth || minHeight) && <><br/>Tối thiểu {minWidth && `${minWidth}px`}{minWidth && minHeight && ' × '}{minHeight && `${minHeight}px`}</>}
             </p>
           </div>
         )}

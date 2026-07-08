@@ -22,7 +22,7 @@ router.get('/:event_id', async (req, res) => {
 // POST /api/tickets — Tạo vé (Admin hoặc Organizer, chỉ cho event của mình)
 router.post('/', auth, adminOrOrganizer, async (req, res) => {
   try {
-    const { event_id, type, price, quantity_available } = req.body;
+    const { event_id, type, price, quantity_available, max_per_order } = req.body;
 
     // Kiểm tra ownership cho organizer
     if (req.user.role === 'organizer') {
@@ -36,8 +36,8 @@ router.post('/', auth, adminOrOrganizer, async (req, res) => {
     }
 
     const newTicket = await db.query(
-      "INSERT INTO tickets (event_id, type, price, quantity_available) VALUES ($1, $2, $3, $4) RETURNING *",
-      [event_id, type, price, quantity_available]
+      "INSERT INTO tickets (event_id, type, price, quantity_available, max_per_order) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+      [event_id, type, price, quantity_available, max_per_order || 10]
     );
 
     res.status(201).json(newTicket.rows[0]);
@@ -51,7 +51,7 @@ router.post('/', auth, adminOrOrganizer, async (req, res) => {
 router.put('/:id', auth, adminOrOrganizer, async (req, res) => {
   try {
     const { id } = req.params;
-    const { type, price, quantity_available } = req.body;
+    const { type, price, quantity_available, max_per_order } = req.body;
 
     const ticketCheck = await db.query("SELECT event_id FROM tickets WHERE id = $1", [id]);
     if (ticketCheck.rows.length === 0) return res.status(404).json({ msg: "Vé không tồn tại" });
@@ -65,8 +65,8 @@ router.put('/:id', auth, adminOrOrganizer, async (req, res) => {
     }
 
     const updated = await db.query(
-      "UPDATE tickets SET type = $1, price = $2, quantity_available = $3 WHERE id = $4 RETURNING *",
-      [type, price, quantity_available, id]
+      "UPDATE tickets SET type = $1, price = $2, quantity_available = $3, max_per_order = $4 WHERE id = $5 RETURNING *",
+      [type, price, quantity_available, max_per_order || 10, id]
     );
 
     res.json(updated.rows[0]);

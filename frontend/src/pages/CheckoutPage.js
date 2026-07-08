@@ -11,12 +11,11 @@ const CheckoutPage = () => {
   const { event, ticket } = location.state || {};
   const [quantity, setQuantity] = useState(1);
 
-  // --- CẤU HÌNH GIỚI HẠN MUA ---
-  const MAX_PER_ORDER = 2; // Giới hạn mỗi lần chỉ được mua tối đa 2 vé
+  // Giới hạn mỗi lần mua từ cấu hình hạng vé (max_per_order)
+  const maxPerOrder = ticket?.max_per_order || 10;
 
-  // Tính toán số lượng tối đa được phép chọn
-  // (Lấy số nhỏ hơn giữa: Kho vé còn lại VÀ Giới hạn cho phép)
-  const maxAllowed = Math.min(ticket?.quantity_available || 0, MAX_PER_ORDER);
+  // Tính toán số lượng tối đa thực tế: nhỏ hơn giữa kho còn và giới hạn đơn
+  const maxAllowed = Math.min(ticket?.quantity_available || 0, maxPerOrder);
 
   if (!event || !ticket) {
     return <div style={{ padding: '50px', color: 'white', textAlign: 'center' }}>Dữ liệu không hợp lệ. <button onClick={() => navigate('/')}>Về trang chủ</button></div>;
@@ -39,8 +38,8 @@ const CheckoutPage = () => {
       alert("Số lượng vé trong kho không đủ!");
       return;
     }
-    if (quantity > MAX_PER_ORDER) {
-      alert(`Bạn chỉ được mua tối đa ${MAX_PER_ORDER} vé mỗi lần!`);
+    if (quantity > maxPerOrder) {
+      alert(`Bạn chỉ được mua tối đa ${maxPerOrder} vé mỗi lần!`);
       return;
     }
 
@@ -190,25 +189,45 @@ const CheckoutPage = () => {
           </div>
         </div>
 
-        {/* Nút thanh toán */}
-        <button
-          onClick={handleConfirmPayment}
-          style={{
-            width: '100%',
-            marginTop: '30px',
-            padding: '15px',
-            background: '#2CC275',
-            color: 'white',
-            border: 'none',
-            borderRadius: '8px',
-            fontSize: '18px',
-            fontWeight: 'bold',
-            cursor: 'pointer',
-            transition: 'background 0.3s'
-          }}
-        >
-          Xác nhận thanh toán
-        </button>
+        {/* Nút hành động */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '30px' }}>
+          <button
+            onClick={handleConfirmPayment}
+            style={{
+              width: '100%',
+              padding: '15px',
+              background: '#2CC275',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '18px',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              transition: 'background 0.3s',
+            }}
+          >
+            Xác nhận thanh toán
+          </button>
+          <button
+            onClick={() => navigate(-1)}
+            style={{
+              width: '100%',
+              padding: '13px',
+              background: 'transparent',
+              color: '#888',
+              border: '1px solid #444',
+              borderRadius: '8px',
+              fontSize: '15px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              transition: 'border-color 0.2s, color 0.2s',
+            }}
+            onMouseEnter={e => { e.target.style.borderColor = '#2CC275'; e.target.style.color = '#2CC275'; }}
+            onMouseLeave={e => { e.target.style.borderColor = '#444'; e.target.style.color = '#888'; }}
+          >
+            ← Quay lại chọn hạng vé
+          </button>
+        </div>
 
       </div>
     </div>

@@ -12,7 +12,7 @@ router.get('/events/:id/seatmap', async (req, res) => {
     const { id } = req.params;
 
     const eventRes = await db.query(
-      "SELECT id, title, has_seatmap, seatmap_type, svg_layout, event_date, end_date, location FROM events WHERE id = $1",
+      "SELECT id, title, has_seatmap, seatmap_type, svg_layout, event_date, end_date, location, stage_position FROM events WHERE id = $1",
       [id]
     );
     if (eventRes.rows.length === 0) {
@@ -24,6 +24,12 @@ router.get('/events/:id/seatmap', async (req, res) => {
       return res.status(400).json({ msg: "Sự kiện này không có sơ đồ chỗ ngồi" });
     }
 
+    // Fetch tickets for this event (to get max_per_order per tier)
+    const ticketsRes = await db.query(
+      "SELECT id, type, price, quantity_available, max_per_order FROM tickets WHERE event_id = $1 ORDER BY price ASC",
+      [id]
+    );
+
     const eventInfo = {
       id: event.id,
       title: event.title,
@@ -31,6 +37,13 @@ router.get('/events/:id/seatmap', async (req, res) => {
       event_date: event.event_date,
       end_date: event.end_date,
       location: event.location,
+      stage_position: event.stage_position || 'top',
+      tickets: ticketsRes.rows.map(t => ({
+        id: t.id,
+        type: t.type,
+        price: parseFloat(t.price),
+        max_per_order: parseInt(t.max_per_order) || 10,
+      })),
     };
 
     if (event.seatmap_type === 'zone') {

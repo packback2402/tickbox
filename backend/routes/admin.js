@@ -113,7 +113,13 @@ router.get('/pending-events', auth, admin, async (req, res) => {
       WHERE e.status = 'pending'
       ORDER BY e.id DESC
     `);
-    res.json(result.rows);
+    const rows = result.rows.map(row => {
+      if (row.license_files && typeof row.license_files === 'string') {
+        try { row.license_files = JSON.parse(row.license_files); } catch { row.license_files = []; }
+      }
+      return row;
+    });
+    res.json(rows);
   } catch (err) {
     console.error(err.message);
     res.status(500).send("Lỗi Server");
@@ -169,7 +175,13 @@ router.get('/all-events', auth, admin, async (req, res) => {
       JOIN users u ON e.organizer_id = u.id
       ORDER BY e.id DESC
     `);
-    res.json(result.rows);
+    const rows = result.rows.map(row => {
+      if (row.license_files && typeof row.license_files === 'string') {
+        try { row.license_files = JSON.parse(row.license_files); } catch { row.license_files = []; }
+      }
+      return row;
+    });
+    res.json(rows);
   } catch (err) {
     console.error(err.message);
     res.status(500).send("Lỗi Server");
@@ -243,12 +255,11 @@ router.get('/revenue-events', auth, admin, async (req, res) => {
              COALESCE(SUM(oi.quantity_ordered * oi.price_at_purchase), 0) as total_gmv,
              COALESCE(SUM(oi.quantity_ordered * oi.price_at_purchase * ${PLATFORM_FEE_RATE}), 0) as platform_fee,
              COALESCE(SUM(oi.quantity_ordered * oi.price_at_purchase * ${ORGANIZER_SHARE}), 0) as net_revenue
-      FROM order_items oi
-      JOIN orders o ON o.id = oi.order_id
-      JOIN events e ON o.event_id = e.id
-      WHERE o.status = 'completed' ${orderDateFilter}
+      FROM events e
+      LEFT JOIN orders o ON o.event_id = e.id AND o.status = 'completed' ${orderDateFilter}
+      LEFT JOIN order_items oi ON oi.order_id = o.id
       GROUP BY e.id, e.title
-      ORDER BY total_gmv DESC
+      ORDER BY e.event_date DESC, e.id DESC
     `);
     res.json(result.rows);
   } catch (err) {
@@ -441,7 +452,7 @@ router.get('/revenue-detailed', auth, admin, async (req, res) => {
       LEFT JOIN order_items oi ON oi.order_id = o.id
       WHERE e.status = 'published' ${orderDateFilter}
       GROUP BY e.id, e.title, e.event_date, c.name
-      ORDER BY total_revenue DESC
+      ORDER BY e.event_date DESC, e.id DESC
     `);
     res.json(result.rows);
   } catch (err) {
@@ -515,7 +526,7 @@ router.get('/event-orders/:event_id', auth, admin, async (req, res) => {
         o.order_code     AS order_code,
         u.email          AS customer_email,
         SPLIT_PART(u.email, '@', 1) AS customer_name,
-        t.type           AS ticket_type,
+        COALESCE(t.type, vz.name, seat_info.section, 'Không rõ') AS ticket_type,
         oi.quantity_ordered,
         oi.price_at_purchase,
         (oi.quantity_ordered * oi.price_at_purchase)        AS subtotal,
@@ -525,6 +536,8 @@ router.get('/event-orders/:event_id', auth, admin, async (req, res) => {
       JOIN orders o    ON o.id = oi.order_id
       JOIN users u     ON u.id = o.user_id
       LEFT JOIN tickets t ON t.id = oi.ticket_id
+      LEFT JOIN venue_zones vz ON vz.id = oi.zone_id
+      LEFT JOIN seats seat_info ON seat_info.id = oi.seat_id
       WHERE o.event_id = $1
         AND o.status = 'completed'
       ORDER BY o.created_at DESC

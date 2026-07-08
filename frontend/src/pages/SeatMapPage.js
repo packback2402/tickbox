@@ -32,7 +32,20 @@ const SeatMapPage = () => {
   const [baResult, setBaResult] = useState(null); // { seats_info, expires_at, held_seat_ids, is_contiguous, total }
 
   const timerRef = useRef(null);
-  const MAX_SEATS = 4;
+
+  // Dynamic max per order: falls back to 10 if not set
+  const getMaxPerOrder = (tierNameOrPrice) => {
+    const tickets = seatmapData?.event?.tickets || [];
+    if (!tickets.length) return 10;
+    // Match by tier name first, then by price
+    const match = tickets.find(t => t.type === tierNameOrPrice)
+      || tickets.find(t => Math.abs(t.price - parseFloat(tierNameOrPrice)) < 0.01);
+    return match?.max_per_order || 10;
+  };
+  // Global max: minimum across all tiers (safest default for seat mode)
+  const globalMaxPerOrder = seatmapData?.event?.tickets?.length
+    ? Math.min(...seatmapData.event.tickets.map(t => t.max_per_order || 10))
+    : 10;
 //  const [zoom, setZoom] = useState(1);
 
   // Konva container width measurement
@@ -132,7 +145,10 @@ const SeatMapPage = () => {
     setSelectedSeats(prev => {
       const exists = prev.find(s => s.id === seat.id);
       if (exists) return prev.filter(s => s.id !== seat.id);
-      if (prev.length >= MAX_SEATS) { alert(`Tối đa ${MAX_SEATS} ghế!`); return prev; }
+    if (prev.length >= globalMaxPerOrder) {
+        alert(`Tối đa ${globalMaxPerOrder} vé cho loại này!`);
+        return prev;
+      }
       return [...prev, seat];
     });
   };
@@ -313,7 +329,7 @@ const SeatMapPage = () => {
     container: { maxWidth: '1200px', margin: '0 auto' },
     header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '12px', paddingBottom: '16px', borderBottom: '1px solid #222' },
     stage: { background: 'linear-gradient(135deg, #2CC275, #1a8a4a)', padding: '16px', borderRadius: '12px 12px 50% 50%', textAlign: 'center', color: 'white', fontWeight: '800', fontSize: '16px', letterSpacing: '4px', marginBottom: '32px', boxShadow: '0 4px 24px rgba(44,194,117,0.35)' },
-    sectionTitle: { color: '#2CC275', fontSize: '13px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '2px', marginBottom: '14px', padding: '6px 14px', background: 'rgba(44,194,117,0.1)', borderRadius: '20px', display: 'inline-flex', alignItems: 'center', gap: '6px' },
+
     rowContainer: { display: 'flex', alignItems: 'center', gap: '3px', marginBottom: '3px', justifyContent: 'center' },
     rowLabel: { width: '26px', textAlign: 'center', fontWeight: '700', color: '#666', fontSize: '12px' },
     seat: (status) => ({
@@ -349,8 +365,37 @@ const SeatMapPage = () => {
     }),
     countdownBar: { background: 'linear-gradient(90deg, #ff6b35, #ff4d4f)', padding: '12px 18px', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', animation: 'pulse 2s infinite' },
     qtyBtn: { width: '38px', height: '38px', borderRadius: '50%', border: '1px solid #444', background: '#222', color: 'white', fontSize: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' },
+    sectionTitle: { color: '#2CC275', fontSize: '13px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '2px', marginBottom: '14px', padding: '6px 14px', background: 'rgba(44,194,117,0.1)', borderRadius: '20px', display: 'inline-flex', alignItems: 'center', gap: '6px' },
   };
 
+  // ── Stage position-aware block ────────────────────────────────
+  const stagePos = seatmapData?.event?.stage_position || 'top';
+
+  const StageBlock = ({ position }) => {
+    if (stagePos === 'none' || stagePos !== position) return null;
+    const isVertical = position === 'left' || position === 'right';
+    return (
+      <div style={{
+        background: 'linear-gradient(135deg, #2CC275, #1a8a4a)',
+        padding: isVertical ? '40px 12px' : '14px 80px',
+        borderRadius: position === 'top' ? '12px 12px 50% 50%'
+          : position === 'bottom' ? '50% 50% 12px 12px'
+          : position === 'left' ? '12px 50% 50% 12px'
+          : '50% 12px 12px 50%',
+        color: 'white', fontWeight: '800', fontSize: '16px', letterSpacing: '4px',
+        textAlign: 'center', boxShadow: '0 4px 24px rgba(44,194,117,0.35)',
+        alignSelf: 'center', flexShrink: 0,
+        writingMode: isVertical ? 'vertical-rl' : 'horizontal-tb',
+        transform: position === 'left' ? 'rotate(180deg)' : 'none',
+        marginBottom: position === 'top' ? '24px' : '0',
+        marginTop: position === 'bottom' ? '24px' : '0',
+        marginRight: position === 'left' ? '20px' : '0',
+        marginLeft: position === 'right' ? '20px' : '0',
+      }}>
+        SÂN KHẤU
+      </div>
+    );
+  };
 
   if (loading) return (
     <div style={{ textAlign: 'center', marginTop: '120px', color: '#aaa' }}>
@@ -381,7 +426,16 @@ const SeatMapPage = () => {
           <h2 style={{ color: '#fff', marginBottom: '6px', fontSize: '22px' }}>{seatmapData.event.title}</h2>
           <p style={{ color: '#666', marginBottom: '24px', fontSize: '14px' }}>Chọn khu vực bạn muốn và số lượng vé</p>
 
-          {!seatmapData.event.svg_layout && <div style={styles.stage}>SÂN KHẤU</div>}
+          {!seatmapData.event.svg_layout && stagePos !== 'none' && (
+            <div style={{
+              display: 'flex',
+              flexDirection: stagePos === 'left' ? 'row' : stagePos === 'right' ? 'row-reverse' : stagePos === 'bottom' ? 'column-reverse' : 'column',
+              alignItems: 'center',
+              marginBottom: stagePos === 'top' || stagePos === 'bottom' ? '0' : '24px',
+            }}>
+              <StageBlock position={stagePos} />
+            </div>
+          )}
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '24px', maxWidth: '1400px' }}>
             {/* LEFT: SVG/zones map */}
@@ -529,7 +583,7 @@ const SeatMapPage = () => {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '20px', marginBottom: '20px' }}>
                 <button style={styles.qtyBtn} onClick={() => setZonePopup(p => ({ ...p, quantity: Math.max(1, p.quantity - 1) }))}>−</button>
                 <span style={{ fontSize: '32px', fontWeight: '800', minWidth: '50px', textAlign: 'center' }}>{zonePopup.quantity}</span>
-                <button style={styles.qtyBtn} onClick={() => setZonePopup(p => ({ ...p, quantity: Math.min(4, p.quantity + 1, p.zone.capacity - p.zone.sold) }))}>+</button>
+                <button style={styles.qtyBtn} onClick={() => setZonePopup(p => ({ ...p, quantity: Math.min(getMaxPerOrder(p.zone.name), p.quantity + 1, p.zone.capacity - p.zone.sold) }))}>+</button>
               </div>
 
               <div style={{ textAlign: 'center', fontSize: '22px', fontWeight: '800', color: '#2CC275', marginBottom: '24px' }}>
@@ -645,7 +699,13 @@ const SeatMapPage = () => {
                 </div>
               ) : (
                 <>
-                  <div style={styles.stage}>SÂN KHẤU</div>
+                  {/* Stage + zones layout based on position */}
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: stagePos === 'left' ? 'row' : stagePos === 'right' ? 'row-reverse' : stagePos === 'bottom' ? 'column-reverse' : 'column',
+                    alignItems: stagePos === 'left' || stagePos === 'right' ? 'flex-start' : 'stretch',
+                  }}>
+                    {stagePos !== 'none' && <StageBlock position={stagePos} />}
                   {/* Standing zones tiles */}
                   {standingZones.length > 0 && (
                     <div style={{ marginBottom: '24px' }}>
@@ -734,6 +794,7 @@ const SeatMapPage = () => {
                       </div>
                     </div>
                   )}
+                  </div>{/* end stage-aware layout */}
                 </>
               )}
 
@@ -884,7 +945,7 @@ const SeatMapPage = () => {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '20px', marginBottom: '20px' }}>
                 <button style={styles.qtyBtn} onClick={() => setZonePopup(p => ({ ...p, quantity: Math.max(1, p.quantity - 1) }))}>−</button>
                 <span style={{ fontSize: '32px', fontWeight: '800' }}>{zonePopup.quantity}</span>
-                <button style={styles.qtyBtn} onClick={() => setZonePopup(p => ({ ...p, quantity: Math.min(4, p.quantity + 1, p.zone.capacity - (p.zone.sold || 0)) }))}>+</button>
+                <button style={styles.qtyBtn} onClick={() => setZonePopup(p => ({ ...p, quantity: Math.min(getMaxPerOrder(p.zone.name), p.quantity + 1, p.zone.capacity - (p.zone.sold || 0)) }))}>+</button>
               </div>
               <div style={{ textAlign: 'center', fontSize: '22px', fontWeight: '800', color: '#2CC275', marginBottom: '24px' }}>{fmt(zonePopup.zone.price * zonePopup.quantity)}</div>
               <button onClick={handleZonePurchase} disabled={booking} style={styles.btn(!booking)}>{booking ? 'Đang xử lý...' : `Mua ${zonePopup.quantity} vé`}</button>
@@ -920,7 +981,7 @@ const SeatMapPage = () => {
                   <div style={{ fontSize: '32px', fontWeight: '800' }}>{sectionPopup.quantity}</div>
                   <div style={{ fontSize: '12px', color: '#666' }}>vé</div>
                 </div>
-                <button style={styles.qtyBtn} onClick={() => setSectionPopup(p => ({ ...p, quantity: Math.min(8, p.quantity + 1) }))}>+</button>
+                <button style={styles.qtyBtn} onClick={() => setSectionPopup(p => ({ ...p, quantity: Math.min(getMaxPerOrder(p.section.name), p.quantity + 1) }))}>+</button>
               </div>
               <div style={{ textAlign: 'center', fontSize: '22px', fontWeight: '800', color: '#1890ff', marginBottom: '24px' }}>
                 {fmt(sectionPopup.section.price * sectionPopup.quantity)}
@@ -973,23 +1034,6 @@ const SeatMapPage = () => {
           <FaArrowLeft /> Quay lại sự kiện
         </Link>
 
-        {/* Legend bar */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '20px', flexWrap: 'wrap', padding: '10px 16px', background: '#111', borderRadius: '10px', border: '1px solid #1e1e1e' }}>
-          <span style={{ color: '#666', fontSize: '12px', fontWeight: '600', marginRight: '4px' }}>Chú thích:</span>
-          {[
-            { color: '#e8f5e8', border: '#4a8a4a', label: 'Đang trống' },
-            { color: '#2CC275', border: '#1a8a4a', label: 'Đang chọn' },
-            { color: '#ff4d4f', border: '#cc3333', label: 'Không chọn được' },
-          ].map(item => (
-            <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#aaa' }}>
-              <div style={{ width: '16px', height: '16px', borderRadius: '50%', background: item.color, border: `2px solid ${item.border}` }} />
-              {item.label}
-            </div>
-          ))}
-          {holdInfo && <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#FFD700' }}>
-            <div style={{ width: '16px', height: '16px', borderRadius: '50%', background: '#FFD700', border: '2px solid #aa9000' }} /> Của tôi
-          </div>}
-        </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 300px', gap: '24px', alignItems: 'start' }}>
           {/* LEFT: Konva Seat map Canvas */}
@@ -1044,7 +1088,7 @@ const SeatMapPage = () => {
             <div style={{ borderTop: '1px solid #222', paddingTop: '14px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
                 <FaShoppingCart style={{ color: '#2CC275', fontSize: '14px' }} />
-                <strong style={{ color: '#fff', fontSize: '13px' }}>Đã chọn ({selectedSeats.length}/{MAX_SEATS})</strong>
+                <strong style={{ color: '#fff', fontSize: '13px' }}>Đã chọn ({selectedSeats.length}/{globalMaxPerOrder})</strong>
               </div>
 
               {selectedSeats.length === 0 ? (

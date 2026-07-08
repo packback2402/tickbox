@@ -162,7 +162,7 @@ router.post('/', auth, adminOrOrganizer, async (req, res) => {
       title, description, image_url, event_date, end_date, location, category_id, organizer, is_featured,
       bank_account_holder, bank_account_number, bank_name, bank_branch,
       want_invoice, invoice_business_type, invoice_full_name, invoice_company_name, invoice_tax_code, invoice_address,
-      license_note, license_files,
+      license_note, license_files, stage_position,
     } = req.body;
     if (!req.user || !req.user.id) {
       return res.status(401).json({ msg: "Lỗi xác thực: Không tìm thấy User ID" });
@@ -182,15 +182,19 @@ router.post('/', auth, adminOrOrganizer, async (req, res) => {
         title, description, image_url, event_date, end_date, location, category_id, organizer, is_featured, organizer_id, status,
         bank_account_holder, bank_account_number, bank_name, bank_branch,
         want_invoice, invoice_business_type, invoice_full_name, invoice_company_name, invoice_tax_code, invoice_address,
-        license_note, license_files
+        license_note, license_files, stage_position
        ) 
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) 
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) 
        RETURNING *`,
       [
         title, description, image_url, event_date, end_date, location, category_id, organizer, featuredValue, organizer_id, eventStatus,
         bank_account_holder || null, bank_account_number || null, bank_name || null, bank_branch || null,
         want_invoice || false, invoice_business_type || 'personal', invoice_full_name || null, invoice_company_name || null, invoice_tax_code || null, invoice_address || null,
-        license_note || null, license_files || null,
+        license_note || null, (() => {
+          if (!license_files) return null;
+          if (Array.isArray(license_files)) return license_files;
+          try { const p = JSON.parse(license_files); return Array.isArray(p) ? p : null; } catch { return null; }
+        })(), stage_position || 'top',
       ]
     );
     if (newEvent.rows.length > 0) {
@@ -246,7 +250,12 @@ router.get('/:id', async (req, res) => {
     if (event.rows.length === 0) {
       return res.status(404).json({ msg: "Không tìm thấy sự kiện" });
     }
-    res.status(200).json(event.rows[0]);
+    const row = event.rows[0];
+    // Parse license_files from JSON string to array
+    if (row.license_files && typeof row.license_files === 'string') {
+      try { row.license_files = JSON.parse(row.license_files); } catch { row.license_files = []; }
+    }
+    res.status(200).json(row);
   } catch (err) {
     console.error(err.message);
     res.status(500).send("Lỗi Server");
@@ -261,7 +270,7 @@ router.put('/:id', auth, adminOrOrganizer, async (req, res) => {
       title, description, image_url, event_date, end_date, location, category_id, organizer, is_featured,
       bank_account_holder, bank_account_number, bank_name, bank_branch,
       want_invoice, invoice_business_type, invoice_full_name, invoice_company_name, invoice_tax_code, invoice_address,
-      license_note, license_files,
+      license_note, license_files, stage_position,
     } = req.body;
     if (!title || !event_date || !location) {
       return res.status(400).json({ msg: "Thiếu thông tin bắt buộc (Tên, Ngày, Địa điểm)!" });
@@ -309,15 +318,21 @@ router.put('/:id', auth, adminOrOrganizer, async (req, res) => {
            invoice_tax_code = $18,
            invoice_address = $19,
            license_note = $20,
-           license_files = $21
+           license_files = $21,
+           stage_position = $22
            ${statusUpdate}
-       WHERE id = $22 
+       WHERE id = $23 
        RETURNING *`,
       [
         title, description, image_url, event_date, end_date, location, category_id, organizer, featuredValue,
         bank_account_holder || null, bank_account_number || null, bank_name || null, bank_branch || null,
         want_invoice || false, invoice_business_type || 'personal', invoice_full_name || null, invoice_company_name || null, invoice_tax_code || null, invoice_address || null,
-        license_note || null, license_files || null,
+        license_note || null, (() => {
+          // Safe parse: license_files có thể là JSON string hoặc array
+          if (!license_files) return null;
+          if (Array.isArray(license_files)) return license_files;
+          try { const p = JSON.parse(license_files); return Array.isArray(p) ? p : null; } catch { return null; }
+        })(), stage_position || 'top',
         id,
       ]
     );
@@ -330,6 +345,25 @@ router.put('/:id', auth, adminOrOrganizer, async (req, res) => {
   } catch (err) {
     console.error("LỖI SỬA SỰ KIỆN:", err.message);
     res.status(500).send("Lỗi Server: " + err.message);
+  }
+});
+
+// PATCH /api/events/:id/stage-position — chỉ cập nhật vị trí sân khấu
+router.patch('/:id/stage-position', auth, adminOrOrganizer, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { stage_position } = req.body;
+    if (!stage_position) return res.status(400).json({ msg: 'Thiếu stage_position' });
+
+    const result = await db.query(
+      `UPDATE events SET stage_position = $1 WHERE id = $2 RETURNING id, stage_position`,
+      [stage_position, id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ msg: 'Không tìm thấy sự kiện' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Lỗi Server');
   }
 });
 

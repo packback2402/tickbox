@@ -24,8 +24,10 @@ const inp = {
  *            Standing: nhập sức chứa
  *            Seated:   nhập rows × cols (gen seats ngầm)
  */
-const SeatmapBuilderModal = ({ event, onClose, onSuccess }) => {
+const SeatmapBuilderModal = ({ event, onClose, onSuccess, isEditing = false }) => {
   const [mode, setMode] = useState(null); // 'zone' | 'seat' | 'mixed'
+  const [editLoading, setEditLoading] = useState(isEditing); // show loading while fetching existing seatmap
+
 
   // ── Seat-mode state ─────────────────────────────────────────
   const [gridRows, setGridRows] = useState(10);
@@ -78,6 +80,76 @@ const SeatmapBuilderModal = ({ event, onClose, onSuccess }) => {
     };
     fetchEventTickets();
   }, [event.id]);
+
+  // ── Load existing seatmap when editing ──────────────────────
+  useEffect(() => {
+    if (!isEditing) return;
+    const loadExisting = async () => {
+      setEditLoading(true);
+      try {
+        // Load tiers first so colors are available
+        const [tiersRes, seatmapRes] = await Promise.all([
+          api.get(`/api/tickets/${event.id}`),
+          api.get(`/api/events/${event.id}/seatmap`),
+        ]);
+        const loadedTiers = tiersRes.data.map((t, i) => ({
+          id: t.id, name: t.type,
+          price: parseFloat(t.price),
+          quantity: parseInt(t.quantity_available || 0),
+          color: DEFAULT_TIER_COLORS[i % DEFAULT_TIER_COLORS.length],
+        }));
+        setTiers(loadedTiers);
+        if (loadedTiers.length > 0) setActiveTier(loadedTiers[0]);
+
+        const sm = seatmapRes.data;
+        if (sm.type === 'seat' && sm.sections?.length > 0) {
+          // Rebuild cellMap from existing seats
+          const newCellMap = {};
+          let maxCol = 0;
+          let maxRow = 0;
+          sm.sections.forEach(sec => {
+            // Find matching tier for color
+            const tier = loadedTiers.find(t => t.name === sec.name);
+            const color = tier?.color || DEFAULT_TIER_COLORS[0];
+            Object.entries(sec.rows || {}).forEach(([rowLabel, seats]) => {
+              const rowIdx = ROW_LABELS.indexOf(rowLabel);
+              if (rowIdx + 1 > maxRow) maxRow = rowIdx + 1;
+              seats.forEach(seat => {
+                const key = cellKey(rowLabel, seat.number);
+                if (seat.status !== 'disabled') {
+                  newCellMap[key] = { tier: sec.name, price: sec.price, color };
+                } else {
+                  newCellMap[key] = 'disabled';
+                }
+                if (seat.number > maxCol) maxCol = seat.number;
+              });
+            });
+          });
+          setMode('seat');
+          setGridRows(maxRow || 10);
+          setGridCols(maxCol || 15);
+          setCellMap(newCellMap);
+          setGridReady(true);
+          // Sync stage position from DB
+          // (stage_position is read-only from seatmap page; not editable in builder)
+        } else if (sm.type === 'zone' || sm.type === 'mixed') {
+          // For zone/mixed: set SVG and zones, go into zone/mixed mode
+          setSvgContent(sm.event?.svg_layout || '');
+          setZones((sm.zones || []).map(z => ({
+            id: z.svg_id, name: z.name, color: z.color,
+            price: z.price, capacity: z.capacity,
+            zone_type: z.zone_type || 'standing',
+          })));
+          setMode(sm.type);
+        }
+      } catch (e) {
+        console.error('Failed to load existing seatmap', e);
+      } finally {
+        setEditLoading(false);
+      }
+    };
+    loadExisting();
+  }, [isEditing, event.id]);
 
   // ── Load ticket tiers ────────────────────────────────────────
   const loadTiers = useCallback(async () => {
@@ -221,12 +293,23 @@ const SeatmapBuilderModal = ({ event, onClose, onSuccess }) => {
     setEditZone(null); setSelectedElementId(null);
   };
 
-  // Mixed SVG click — opens a richer popup
+  // Mixed SVG click — opens a richer popup; double-click same zone deselects it
   const handleSvgClickMixed = (e) => {
     e.stopPropagation();
     const target = e.target;
     if (!['path', 'rect', 'polygon', 'circle', 'ellipse'].includes(target.tagName?.toLowerCase())) { setSelectedElementId(null); setEditMixedZone(null); return; }
     let elId = target.getAttribute('id'); if (!elId) { elId = `zm-${Date.now()}`; target.setAttribute('id', elId); }
+
+    // Double-tap / second click on same zone → deselect
+    if (selectedElementId === elId) {
+      target.style.stroke = '';
+      target.style.strokeWidth = '';
+      setSelectedElementId(null);
+      setEditMixedZone(null);
+      return;
+    }
+
+    // Clear highlight on previously selected zone
     if (selectedElementId) { const old = svgContainerRef.current?.querySelector(`#${CSS.escape(selectedElementId)}`); if (old) { old.style.stroke = ''; old.style.strokeWidth = ''; } }
     target.style.stroke = '#ff4d4f'; target.style.strokeWidth = '3';
     setSelectedElementId(elId);
@@ -319,6 +402,7 @@ const SeatmapBuilderModal = ({ event, onClose, onSuccess }) => {
     }
     return { byTier: stats, total, disabled, unpainted };
   })();
+
 
   // ── Submit seat mode ─────────────────────────────────────────
   const handleSubmitSeat = async () => {
@@ -449,6 +533,22 @@ const SeatmapBuilderModal = ({ event, onClose, onSuccess }) => {
       onSuccess();
     } catch (err) { alert(err.response?.data?.msg || 'Có lỗi xảy ra'); } finally { setLoading(false); }
   };
+
+  // ─────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────
+  // RENDER: EDIT LOADING
+  // ─────────────────────────────────────────────────────────────
+  if (editLoading) {
+    return (
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)' }}>
+        <div style={{ textAlign: 'center', color: '#888' }}>
+          <FaSpinner style={{ fontSize: '36px', animation: 'spin 1s linear infinite', color: '#2CC275', marginBottom: '16px' }} />
+          <div style={{ fontSize: '15px', fontWeight: '600' }}>Đang tải sơ đồ...</div>
+          <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+        </div>
+      </div>
+    );
+  }
 
   // ─────────────────────────────────────────────────────────────
   // RENDER: MODE SELECTION
@@ -649,12 +749,11 @@ const SeatmapBuilderModal = ({ event, onClose, onSuccess }) => {
                   </div>
 
 
-                  {/* Zone type toggle — 3 options */}
+                  {/* Zone type toggle — 2 options (standing / seated) */}
                   <div style={{ display: 'flex', gap: '6px', marginBottom: '14px' }}>
                     {[
                       { key: 'standing', label: 'Khu Đứng', color: '#2CC275', icon: <FaUsers style={{marginRight:'4px'}}/> },
                       { key: 'seated', label: 'Chọn Ghế', color: '#1890ff', icon: <FaChair style={{marginRight:'4px'}}/> },
-                      { key: 'best_available', label: 'Best Available', color: '#FFC107', icon: <FaMagic style={{marginRight:'4px'}}/> },
                     ].map(opt => {
                       const isActive = editMixedZone.zone_type === opt.key;
                       return (
@@ -695,7 +794,7 @@ const SeatmapBuilderModal = ({ event, onClose, onSuccess }) => {
                     <input style={{ ...inp, width: '100%', marginBottom: '8px', boxSizing: 'border-box', ...(editMixedZone.linkedTicketId ? { opacity: 0.7, cursor: 'not-allowed', borderColor: '#2CC27530' } : {}) }}
                       value={editMixedZone.name} readOnly={!!editMixedZone.linkedTicketId}
                       onChange={e => { if (!editMixedZone.linkedTicketId) setEditMixedZone({ ...editMixedZone, name: e.target.value }); }}
-                      placeholder={editMixedZone.zone_type === 'standing' ? 'Tên khu (GA 1A, Fanzone...)' : editMixedZone.zone_type === 'best_available' ? 'Tên khu (CAT B, Khán đài C...)' : 'Tên khu (VIP A, CAT 1A...)'} />
+                      placeholder={editMixedZone.zone_type === 'standing' ? 'Tên khu (GA 1A, Fanzone...)' : 'Tên khu (VIP A, CAT 1A...)'} />
                     {editMixedZone.linkedTicketId && <FaLock style={{ position: 'absolute', right: '12px', top: '12px', color: '#2CC27560', fontSize: '11px' }} />}
                   </div>
 
@@ -900,173 +999,8 @@ const SeatmapBuilderModal = ({ event, onClose, onSuccess }) => {
             </div>
             <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', fontSize: '22px', cursor: 'pointer' }}><FaTimes /></button>
           </div>
-          {/* Mode toggle — 3 tabs */}
-          <div style={{ display: 'flex', gap: '6px', marginBottom: '16px' }}>
-            {[
-              { key: 'standard', label: 'Lưới chuẩn', color: '#2CC275', active: !customRowMode && !quickCreateMode },
-              { key: 'custom', label: 'Hàng tùy chỉnh', color: '#1890ff', active: customRowMode && !quickCreateMode },
-              { key: 'quick', label: 'Tạo nhanh', color: '#FFC107', active: quickCreateMode },
-            ].map(tab => (
-              <button key={tab.key}
-                onClick={() => { setQuickCreateMode(tab.key === 'quick'); setCustomRowMode(tab.key === 'custom'); }}
-                style={{ flex: 1, padding: '10px 6px', borderRadius: '8px', border: `2px solid ${tab.active ? tab.color : '#2a2a2a'}`, background: tab.active ? `${tab.color}20` : 'transparent', color: tab.active ? tab.color : '#555', cursor: 'pointer', fontWeight: '700', fontSize: '12px' }}>
-                {tab.label}
-              </button>
-            ))}
-          </div>
 
           <div style={{ background: '#0d0d0d', borderRadius: '12px', padding: '20px', marginBottom: '20px', border: '1px solid #1a1a1a' }}>
-            {quickCreateMode ? (
-              /* ═══ QUICK CREATE UI ═══ */
-              <div>
-                <p style={{ color: '#FFC107', fontSize: '13px', marginBottom: '16px', lineHeight: '1.6' }}>
-                  <strong style={{ color: '#eee' }}>Nhập các khu vực</strong> (KHU A, KHU B...) với số hàng và ghế/hàng. Hệ thống <strong style={{ color: '#FFC107' }}>tự sinh toàn bộ ghế + hạng vé</strong>, không cần tô vẽ.
-                </p>
-                {/* Ticket Reference Panel */}
-                <TicketReferencePanel
-                  tickets={eventTickets}
-                  loading={eventTicketsLoading}
-                  onApply={(ticket) => {
-                    setQuickSections(prev => [...prev, {
-                      name: ticket.name, rows: 2, seatsPerRow: 24,
-                      price: String(ticket.price), color: ticket.color,
-                      linkedTicketId: ticket.id,
-                    }]);
-                  }}
-                  targetLabel="khu vực"
-                  showAddNew={quickSections.length < 8}
-                />
-                {/* Section list */}
-                <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
-                  {quickSections.map((sec, i) => {
-                    const isLinked = !!sec.linkedTicketId;
-                    const linkedTicket = isLinked ? eventTickets.find(t => t.id === sec.linkedTicketId) : null;
-                    const maxQty = linkedTicket ? linkedTicket.quantity : null;
-                    const totalSeats = sec.rows * sec.seatsPerRow;
-                    const exceeds = maxQty !== null && totalSeats > maxQty;
-                    return (
-                    <div key={i} style={{ background: '#141414', borderRadius: '10px', padding: '14px', marginBottom: '10px', borderLeft: `4px solid ${sec.color}` }}>
-                      {/* Linked badge */}
-                      {isLinked && (
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                            <FaLink style={{ color: '#2CC275', fontSize: '9px' }} />
-                            <span style={{ color: '#2CC275', fontSize: '10px', fontWeight: '600' }}>Liên kết vé "{sec.name}"</span>
-                          </div>
-                          <button onClick={() => updateQuickSection(i, 'linkedTicketId', null)}
-                            style={{ background: 'none', border: 'none', color: '#666', fontSize: '9px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px', padding: '2px' }}>
-                            <FaUnlink style={{ fontSize: '8px' }} /> Bỏ
-                          </button>
-                        </div>
-                      )}
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
-                        <div style={{ position: 'relative' }}>
-                          <input style={{ ...inp, fontWeight: '700', fontSize: '15px', width: '100%', ...(isLinked ? { opacity: 0.7, cursor: 'not-allowed', borderColor: '#2CC27530' } : {}) }}
-                            value={sec.name} readOnly={isLinked}
-                            onChange={e => { if (!isLinked) updateQuickSection(i, 'name', e.target.value); }}
-                            placeholder="Tên khu (KHU A...)" />
-                          {isLinked && <FaLock style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: '#2CC27560', fontSize: '10px' }} />}
-                        </div>
-                        <button onClick={() => removeQuickSection(i)} disabled={quickSections.length <= 1}
-                          style={{ width: 36, height: 36, background: '#ff4d4f20', border: '1px solid #ff4d4f40', borderRadius: '8px', color: '#ff4d4f', cursor: quickSections.length > 1 ? 'pointer' : 'not-allowed', fontSize: 16 }}>×</button>
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-                        <div>
-                          <label style={{ display: 'block', color: '#666', fontSize: '10px', marginBottom: '3px' }}>Số hàng</label>
-                          <input type="number" min="1" max="26" style={{ ...inp, width: '100%', textAlign: 'center', fontWeight: '700', boxSizing: 'border-box' }}
-                            value={sec.rows}
-                            onChange={e => updateQuickSection(i, 'rows', Math.max(1, Math.min(26, parseInt(e.target.value) || 1)))} />
-                        </div>
-                        <div>
-                          <label style={{ display: 'block', color: '#666', fontSize: '10px', marginBottom: '3px' }}>Ghế/hàng</label>
-                          <input type="number" min="1" max="60" style={{ ...inp, width: '100%', textAlign: 'center', fontWeight: '700', boxSizing: 'border-box' }}
-                            value={sec.seatsPerRow}
-                            onChange={e => updateQuickSection(i, 'seatsPerRow', Math.max(1, Math.min(60, parseInt(e.target.value) || 1)))} />
-                        </div>
-                        <div style={{ position: 'relative' }}>
-                          <label style={{ display: 'block', color: '#666', fontSize: '10px', marginBottom: '3px' }}>Giá vé (VNĐ)</label>
-                          <input style={{ ...inp, width: '100%', textAlign: 'center', fontWeight: '700', boxSizing: 'border-box', ...(isLinked ? { opacity: 0.7, cursor: 'not-allowed', borderColor: '#2CC27530' } : {}) }}
-                            value={sec.price ? new Intl.NumberFormat('vi-VN').format(sec.price) : ''} readOnly={isLinked}
-                            onChange={e => { if (!isLinked) updateQuickSection(i, 'price', e.target.value.replace(/\D/g, '')); }}
-                            placeholder="VNĐ" />
-                          {isLinked && <FaLock style={{ position: 'absolute', right: '8px', bottom: '12px', color: '#2CC27560', fontSize: '9px' }} />}
-                        </div>
-                      </div>
-                      {exceeds && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', background: '#ff4d4f15', border: '1px solid #ff4d4f30', borderRadius: '6px', padding: '5px 8px', marginBottom: '8px', fontSize: '11px', color: '#ff4d4f' }}>
-                          <FaExclamationTriangle style={{ fontSize: '10px', flexShrink: 0 }} />
-                          {totalSeats} ghế vượt giới hạn {maxQty} vé đã khai báo
-                        </div>
-                      )}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <label style={{ color: '#666', fontSize: '11px' }}>Màu:</label>
-                        <input type="color" style={{ width: 32, height: 24, border: 'none', background: 'transparent', cursor: 'pointer' }}
-                          value={sec.color}
-                          onChange={e => updateQuickSection(i, 'color', e.target.value)} />
-                        <div style={{ flex: 1, textAlign: 'right', fontSize: '11px', fontWeight: '700', color: exceeds ? '#ff4d4f' : sec.color }}>
-                          {totalSeats} ghế{maxQty ? ` / ${maxQty} vé` : ''}
-                        </div>
-                      </div>
-                    </div>
-                  );})}                </div>
-                <button onClick={addQuickSection} disabled={quickSections.length >= 8}
-                  style={{ width: '100%', marginTop: '8px', padding: '10px', background: '#FFC10710', border: '1px dashed #FFC10750', borderRadius: '8px', color: '#FFC107', cursor: quickSections.length < 8 ? 'pointer' : 'not-allowed', fontWeight: '700', fontSize: '13px' }}>
-                  + Thêm khu vực ({quickSections.length}/8)
-                </button>
-                {/* Stats */}
-                <div style={{ marginTop: '12px', background: '#080808', borderRadius: '8px', padding: '10px', fontSize: '11px', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-                  <span style={{ color: '#555' }}>Tổng khu: <strong style={{ color: '#FFC107' }}>{quickSections.length}</strong></span>
-                  <span style={{ color: '#555' }}>Tổng hàng: <strong style={{ color: '#2CC275' }}>{quickSections.reduce((sum, s) => sum + s.rows, 0)}</strong></span>
-                  <span style={{ color: '#555' }}>Tổng ghế: <strong style={{ color: '#eee' }}>{quickSections.reduce((sum, s) => sum + s.rows * s.seatsPerRow, 0)}</strong></span>
-                </div>
-              </div>
-            ) : !customRowMode ? (
-              <p style={{ color: '#888', fontSize: '13px', marginBottom: '20px', lineHeight: '1.6' }}>
-                Nhập <strong style={{ color: '#eee' }}>kích thước tối đa</strong> của hội trường — hệ thống tạo 1 lưới ghế tổng thể.<br />
-                <span style={{ color: '#555' }}>Tô màu từng khu theo hạng vé, dùng tẩy để tạo lối đi.</span>
-              </p>
-            ) : (
-              <p style={{ color: '#888', fontSize: '13px', marginBottom: '20px', lineHeight: '1.6' }}>
-                Định nghĩa <strong style={{ color: '#eee' }}>từng hàng ghế</strong> với số lượng và vị trí bắt đầu riêng.<br />
-                <span style={{ color: '#1890ff' }}>Phù hợp cho hội trường hình cung, chữ L, bậc thang...</span>
-              </p>
-            )}
-            {!quickCreateMode && (customRowMode ? (
-              <div>
-                <div style={{ display: 'grid', gridTemplateColumns: '40px 1fr 1fr auto', gap: '6px', marginBottom: '6px', padding: '0 4px' }}>
-                  <span style={{ color: '#555', fontSize: '11px', textAlign: 'center' }}>Hàng</span>
-                  <span style={{ color: '#555', fontSize: '11px' }}>Số ghế</span>
-                  <span style={{ color: '#555', fontSize: '11px' }}>Ghế bắt đầu</span>
-                  <span></span>
-                </div>
-                <div style={{ maxHeight: '220px', overflowY: 'auto' }}>
-                  {customRows.map((row, i) => (
-                    <div key={i} style={{ display: 'grid', gridTemplateColumns: '40px 1fr 1fr auto', gap: '6px', marginBottom: '6px', alignItems: 'center' }}>
-                      <div style={{ background: '#1a1a1a', borderRadius: '6px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2CC275', fontWeight: '800', fontSize: '14px' }}>{row.label}</div>
-                      <input type="number" min="1" max="60" value={row.seats}
-                        onChange={e => updateCustomRow(i, 'seats', Math.max(1, parseInt(e.target.value) || 1))}
-                        style={{ ...inp, textAlign: 'center', fontWeight: '700' }} placeholder="Số ghế" />
-                      <input type="number" min="1" max="60" value={row.startSeat}
-                        onChange={e => updateCustomRow(i, 'startSeat', Math.max(1, parseInt(e.target.value) || 1))}
-                        style={{ ...inp, textAlign: 'center', fontWeight: '700' }} placeholder="Bắt đầu từ" />
-                      <button onClick={() => removeCustomRow(i)} style={{ width: '36px', height: '36px', background: '#ff4d4f20', border: '1px solid #ff4d4f40', borderRadius: '6px', color: '#ff4d4f', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
-                    </div>
-                  ))}
-                </div>
-                <button onClick={addCustomRow} disabled={customRows.length >= 26}
-                  style={{ width: '100%', marginTop: '10px', padding: '9px', background: '#1890ff15', border: '1px dashed #1890ff50', borderRadius: '8px', color: '#1890ff', cursor: customRows.length < 26 ? 'pointer' : 'not-allowed', fontWeight: '700', fontSize: '13px' }}>
-                  + Thêm hàng {customRows.length > 0 && `(${customRows.length}/26)`}
-                </button>
-                {customRows.length > 0 && (
-                  <div style={{ marginTop: '12px', background: '#080808', borderRadius: '8px', padding: '10px', fontSize: '11px', color: '#555', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-                    <span>Tổng hàng: <strong style={{ color: '#2CC275' }}>{customRows.length}</strong></span>
-                    <span>Tổng ghế: <strong style={{ color: '#1890ff' }}>{customRows.reduce((sum, r) => sum + r.seats, 0)}</strong></span>
-                    <span>Hàng max: <strong style={{ color: '#eee' }}>{Math.max(...customRows.map(r => r.seats))} ghế</strong></span>
-                  </div>
-                )}
-              </div>
-            ) : (
-            <>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
               <div>
                 <label style={{ display: 'block', color: '#666', fontSize: '12px', marginBottom: '6px' }}>Số hàng (tối đa {MAX_ROWS})</label>
@@ -1099,21 +1033,17 @@ const SeatmapBuilderModal = ({ event, onClose, onSuccess }) => {
                 {gridRows > 5 && <div style={{ fontSize: '10px', color: '#444' }}>+{gridRows - 5} hàng nữa</div>}
               </div>
             </div>
-            </>
-            ))}
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px' }}>
+
+
           </div>  {/* close outer card */}
           <div style={{ display: 'flex', gap: '10px' }}>
             <button onClick={() => setMode(null)} style={{ flex: 1, background: '#1a1a1a', border: '1px solid #2a2a2a', color: '#888', padding: '12px', borderRadius: '10px', cursor: 'pointer', fontWeight: '600' }}>← Đổi loại</button>
-            {quickCreateMode ? (
-              <button onClick={handleQuickCreate} disabled={loading}
-                style={{ flex: 2, background: loading ? '#555' : '#FFC107', border: 'none', color: '#000', padding: '12px', borderRadius: '10px', cursor: loading ? 'not-allowed' : 'pointer', fontWeight: '800', fontSize: '15px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                {loading ? <><FaSpinner style={{ animation: 'spin 1s linear infinite' }} /> Đang tạo...</> : <><FaMagic /> Tạo nhanh {quickSections.reduce((sum, s) => sum + s.rows * s.seatsPerRow, 0)} ghế</>}
-              </button>
-            ) : (
-              <button onClick={initGrid} style={{ flex: 2, background: customRowMode ? '#1890ff' : '#2CC275', border: 'none', color: customRowMode ? '#fff' : '#000', padding: '12px', borderRadius: '10px', cursor: 'pointer', fontWeight: '800', fontSize: '15px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                <MdGridOn /> {customRowMode ? `Tạo sơ đồ ${customRows.length} hàng` : `Tạo lưới ${gridRows} × ${gridCols}`}
-              </button>
-            )}
+            <button onClick={initGrid} style={{ flex: 2, background: '#2CC275', border: 'none', color: '#000', padding: '12px', borderRadius: '10px', cursor: 'pointer', fontWeight: '800', fontSize: '15px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              <MdGridOn /> Tạo lưới {gridRows} × {gridCols}
+            </button>
           </div>
         </div>
       </div>
@@ -1149,10 +1079,7 @@ const SeatmapBuilderModal = ({ event, onClose, onSuccess }) => {
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {/* Paint Canvas */}
         <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '20px' }} onContextMenu={e => e.preventDefault()}>
-          <div style={{ background: 'linear-gradient(135deg, #2CC275, #1a8a4a)', padding: '10px 60px', borderRadius: '10px 10px 50% 50%', color: 'white', fontWeight: '800', fontSize: '14px', letterSpacing: '4px', marginBottom: '24px', boxShadow: '0 4px 20px rgba(44,194,117,0.3)', whiteSpace: 'nowrap' }}>
-            SÂN KHẤU
-          </div>
-
+          {/* Grid canvas */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
             {customRowMode ? (
               customRows.map(({ label, seats, startSeat }, r) => (
@@ -1200,14 +1127,15 @@ const SeatmapBuilderModal = ({ event, onClose, onSuccess }) => {
                 </div>
               ))
             )}
-          </div>
+          </div>{/* end grid rows */}
 
           <div style={{ display: 'flex', gap: '20px', marginTop: '24px', flexWrap: 'wrap', justifyContent: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#666' }}><div style={{ width: '14px', height: '14px', background: '#1e2a1e', borderRadius: '3px', border: '1px solid #2a3a2a' }} />Chưa phân hạng</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#666' }}><div style={{ width: '14px', height: '14px', background: 'transparent', borderRadius: '3px', border: '1px dashed #555', opacity: 0.5 }} />Lối đi</div>
             {tiers.map(t => <div key={t.name} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#888' }}><div style={{ width: '14px', height: '14px', background: t.color, borderRadius: '3px' }} />{t.name}</div>)}
           </div>
-        </div>
+        </div>{/* end Paint Canvas */}
+
 
         {/* Sidebar */}
         <div style={{ width: '280px', background: '#0f0f0f', borderLeft: '1px solid #1a1a1a', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
