@@ -25,6 +25,16 @@ docker compose exec -T db psql -U "${DB_USER}" -d "${DB_DATABASE}" -c "
   ALTER TABLE order_items ADD COLUMN IF NOT EXISTS schedule_id INTEGER REFERENCES event_schedules(id);
 " && echo "✅ Migration OK" || echo "⚠️  Migration warning (có thể đã tồn tại)"
 
+# Migration: mở rộng price_at_purchase tránh numeric overflow (>100tr VNĐ)
+docker compose exec -T db psql -U "${DB_USER}" -d "${DB_DATABASE}" -c "
+  ALTER TABLE order_items ALTER COLUMN price_at_purchase TYPE numeric(15,2);
+" && echo "✅ price_at_purchase migration OK" || echo "⚠️  price_at_purchase migration warning"
+
+# Migration: thêm max_per_order vào bảng tickets
+docker compose exec -T db psql -U "${DB_USER}" -d "${DB_DATABASE}" -c "
+  ALTER TABLE tickets ADD COLUMN IF NOT EXISTS max_per_order INTEGER DEFAULT 10;
+" && echo "✅ max_per_order migration OK" || echo "⚠️  max_per_order migration warning"
+
 # 3. Rebuild chỉ frontend và backend (không rebuild DB và nginx)
 echo ""
 echo "[3/4] Rebuild containers..."
