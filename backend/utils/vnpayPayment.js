@@ -62,9 +62,12 @@ function createPaymentUrl({ orderId, amount, orderInfo, ipAddr = '127.0.0.1', ba
     .trim()
     .substring(0, 255) || 'TiTicket Payment';
 
-  // Hạn thanh toán: 10 phút
-  const expireDate = new Date();
-  expireDate.setMinutes(expireDate.getMinutes() + 10);
+  // VNPay yêu cầu CreateDate/ExpireDate theo giờ Việt Nam (ICT = UTC+7)
+  // Server VPS chạy UTC → cần cộng thêm 7h trước khi format
+  const toICT = (date) => new Date(date.getTime() + 7 * 60 * 60 * 1000);
+
+  const now = new Date();
+  const expireDate = new Date(now.getTime() + 15 * 60 * 1000); // 15 phút
 
   const paymentUrl = vnpayInstance.buildPaymentUrl({
     vnp_Amount:     amount,
@@ -74,8 +77,8 @@ function createPaymentUrl({ orderId, amount, orderInfo, ipAddr = '127.0.0.1', ba
     vnp_OrderInfo:  safeOrderInfo,
     vnp_OrderType:  ProductCode.Other,
     vnp_Locale:     locale === 'en' ? VnpLocale.EN : VnpLocale.VN,
-    vnp_CreateDate: dateFormat(new Date()),
-    vnp_ExpireDate: dateFormat(expireDate),
+    vnp_CreateDate: dateFormat(toICT(now)),
+    vnp_ExpireDate: dateFormat(toICT(expireDate)),
     ...(bankCode ? { vnp_BankCode: bankCode } : {}),
   });
 
